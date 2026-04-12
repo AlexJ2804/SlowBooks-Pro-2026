@@ -161,6 +161,7 @@ const InvoicesPage = {
     },
 
     lineCount: 0,
+    _customers: [],
 
     async showForm(id = null) {
         const [customers, items] = await Promise.all([
@@ -174,6 +175,7 @@ const InvoicesPage = {
 
         InvoicesPage.lineCount = inv.lines.length;
         InvoicesPage._items = items;
+        InvoicesPage._customers = customers;
 
         const custOpts = customers.map(c => `<option value="${c.id}" ${inv.customer_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
 
@@ -181,13 +183,13 @@ const InvoicesPage = {
             <form id="invoice-form" onsubmit="InvoicesPage.save(event, ${id})">
                 <div class="form-grid">
                     <div class="form-group"><label>Customer *</label>
-                        <select name="customer_id" required><option value="">Select...</option>${custOpts}</select></div>
+                        <select name="customer_id" required onchange="InvoicesPage.customerSelected(this.value)"><option value="">Select...</option>${custOpts}</select></div>
                     <div class="form-group"><label>Date *</label>
                         <input name="date" type="date" required value="${inv.date}"></div>
                     <div class="form-group"><label>Terms</label>
-                        <select name="terms">
+                        <select name="terms" id="invoice-terms">
                             ${['Net 15','Net 30','Net 45','Net 60','Due on Receipt'].map(t =>
-                                `<option ${inv.terms===t?'selected':''}>${t}</option>`).join('')}
+                                `<option value="${t}" ${inv.terms===t?'selected':''}>${t}</option>`).join('')}
                         </select></div>
                     <div class="form-group"><label>PO #</label>
                         <input name="po_number" value="${escapeHtml(inv.po_number || '')}"></div>
@@ -218,7 +220,16 @@ const InvoicesPage = {
                     <button type="submit" class="btn btn-primary">${id ? 'Update' : 'Create'} Invoice</button>
                 </div>
             </form>`);
+        if (!id && inv.customer_id) InvoicesPage.customerSelected(inv.customer_id);
         InvoicesPage.recalc();
+    },
+
+    customerSelected(customerId) {
+        const customer = InvoicesPage._customers.find(c => c.id == customerId);
+        const termsField = $('#invoice-terms');
+        if (customer && termsField && customer.terms) {
+            termsField.value = customer.terms;
+        }
     },
 
     lineRowHtml(idx, line, items) {
