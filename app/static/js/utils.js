@@ -15,7 +15,10 @@ function formatCurrency(amount) {
 
 function formatDate(dateStr) {
     if (!dateStr) return '';
-    const d = new Date(dateStr + 'T00:00:00');
+    const d = dateStr.includes('T')
+        ? new Date(dateStr)
+        : new Date(dateStr + 'T00:00:00');
+    if (Number.isNaN(d.getTime())) return 'Invalid date';
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 

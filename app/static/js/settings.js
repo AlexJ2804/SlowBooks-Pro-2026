@@ -8,6 +8,7 @@
 const SettingsPage = {
     async render() {
         const s = await API.get('/settings');
+        setTimeout(() => SettingsPage.loadBackups(), 0);
         return `
             <div class="page-header">
                 <h2>Company Settings</h2>
@@ -191,7 +192,7 @@ const SettingsPage = {
                     <td>${(b.file_size / 1024).toFixed(1)} KB</td>
                     <td>${formatDate(b.created_at)}</td>
                     <td class="actions">
-                        <a href="/api/backups/${b.id}/download" class="btn btn-sm btn-secondary" download>Download</a>
+                        <a href="/api/backups/download/${encodeURIComponent(b.filename)}" class="btn btn-sm btn-secondary" download>Download</a>
                     </td>
                 </tr>`).join('')}</tbody>
             </table></div>`;

@@ -28,13 +28,14 @@ class RestoreRequest(BaseModel):
 
 @router.get("")
 def list_backups(db: Session = Depends(get_db)):
-    """List all backups from DB records + filesystem."""
+    """List only backups whose files still exist on disk."""
     db_backups = db.query(Backup).order_by(Backup.created_at.desc()).all()
     return [
         {"id": b.id, "filename": b.filename, "file_size": b.file_size,
          "backup_type": b.backup_type, "notes": b.notes,
          "created_at": b.created_at.isoformat() if b.created_at else None}
         for b in db_backups
+        if (BACKUP_DIR / b.filename).exists()
     ]
 
 
