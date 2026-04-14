@@ -142,6 +142,33 @@ const SettingsPage = {
                 </div>
 
                 <div class="settings-section">
+                    <h3>QuickBooks Online</h3>
+                    <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
+                        Configure your Intuit Developer app credentials for QBO integration.
+                        Get these from <a href="https://developer.intuit.com" target="_blank" style="color:var(--qb-blue);">developer.intuit.com</a>.
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Enable QBO Integration</label>
+                            <select name="qbo_enabled">
+                                <option value="false" ${s.qbo_enabled !== 'true' ? 'selected' : ''}>Disabled</option>
+                                <option value="true" ${s.qbo_enabled === 'true' ? 'selected' : ''}>Enabled</option>
+                            </select></div>
+                        <div class="form-group"><label>Environment</label>
+                            <select name="qbo_environment">
+                                <option value="sandbox" ${s.qbo_environment !== 'production' ? 'selected' : ''}>Sandbox</option>
+                                <option value="production" ${s.qbo_environment === 'production' ? 'selected' : ''}>Production</option>
+                            </select></div>
+                        <div class="form-group"><label>Client ID</label>
+                            <input name="qbo_client_id" value="${escapeHtml(s.qbo_client_id || '')}" placeholder="ABo8gw..."></div>
+                        <div class="form-group"><label>Client Secret</label>
+                            <input name="qbo_client_secret" type="password" value="${escapeHtml(s.qbo_client_secret || '')}" placeholder="tJCdgW..."></div>
+                        <div class="form-group full-width"><label>Redirect URI</label>
+                            <input name="qbo_redirect_uri" value="${escapeHtml(s.qbo_redirect_uri || 'http://localhost:8000/api/qbo/callback')}"
+                                placeholder="http://localhost:8000/api/qbo/callback"></div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
                     <h3>Backup / Restore</h3>
                     <div style="display:flex; gap:8px; margin-bottom:12px;">
                         <button type="button" class="btn btn-primary" onclick="SettingsPage.createBackup()">Create Backup</button>

@@ -40,6 +40,8 @@ from app.routes import bank_import, tax, backups
 from app.routes import companies, employees, payroll
 # Phase 7: Online Payments
 from app.routes import stripe_payments, public
+# Phase 8: QuickBooks Online
+from app.routes import qbo
 
 from app.database import SessionLocal
 from app.services.audit import register_audit_hooks
@@ -93,6 +95,8 @@ app.include_router(payroll.router)
 # Phase 7: Online Payments
 app.include_router(stripe_payments.router)
 app.include_router(public.router)
+# Phase 8: QuickBooks Online
+app.include_router(qbo.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)

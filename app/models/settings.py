@@ -6,7 +6,7 @@
 # at HKCU\Software\Intuit\QuickBooks\12.0\Preferences.
 # ============================================================================
 
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, DateTime, func
 
 from app.database import Base
 
@@ -16,7 +16,7 @@ class Settings(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String(100), unique=True, nullable=False)
-    value = Column(String(500), nullable=True)
+    value = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -58,4 +58,15 @@ DEFAULT_SETTINGS = {
     "stripe_publishable_key": "",
     "stripe_secret_key": "",
     "stripe_webhook_secret": "",
+    # QuickBooks Online Integration
+    "qbo_enabled": "false",
+    "qbo_client_id": "",
+    "qbo_client_secret": "",
+    "qbo_redirect_uri": "http://localhost:3001/api/qbo/callback",
+    "qbo_environment": "sandbox",
+    "qbo_access_token": "",
+    "qbo_refresh_token": "",
+    "qbo_realm_id": "",
+    "qbo_token_expires_at": "",
+    "qbo_oauth_state": "",
 }

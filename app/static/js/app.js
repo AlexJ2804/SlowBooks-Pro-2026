@@ -32,6 +32,8 @@ const App = {
         '/batch-payments': { page: 'batch-payments', label: 'Batch Payments',     render: () => BatchPaymentsPage.render() },
         // Phase 4: CSV Import/Export
         '/csv':           { page: 'csv',             label: 'CSV Import/Export',  render: () => App.renderCSV() },
+        // Phase 8: QuickBooks Online
+        '/qbo':           { page: 'qbo',             label: 'QuickBooks Online',  render: () => QBOPage.render() },
         // Phase 5: Advanced Integration
         '/tax':           { page: 'tax',             label: 'Tax Reports',        render: () => TaxPage.render() },
         // Phase 6: Ambitious

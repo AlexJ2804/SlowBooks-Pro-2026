@@ -8,21 +8,13 @@ Free and open source. Runs on Windows, macOS, and Linux. No Intuit activation se
 
 ![Slowbooks Pro 2026 — Splash Screen](screenshots/splash.png)
 
-![Slowbooks Pro 2026 — Dashboard (Light Mode)](screenshots/dashboard-light.png)
-
-![Slowbooks Pro 2026 — Dashboard (Dark Mode)](screenshots/dashboard-dark.png)
-
-![Slowbooks Pro 2026 — Invoices with IRS Pub 583 Mock Data](screenshots/invoices.png)
-
-![Slowbooks Pro 2026 — QuickBooks 2003 IIF Interop](screenshots/iif-interop.png)
-
 ---
 
 ## The Story
 
 I ran QuickBooks 2003 Pro for 14 years for side business invoicing and bookkeeping. Then the hard drive died. Intuit's activation servers have been dead since ~2017, so the software can't be reinstalled. The license I paid for is worthless.
 
-So I built my own replacement. Every invoice I ever printed is getting re-entered from paper copies.
+So I built my own replacement. I transferred all my data from the old .QBW file using IIF export/import.
 
 The codebase is annotated with "decompilation" comments referencing `QBW32.EXE` offsets, Btrieve table layouts, and MFC class names — a tribute to the software that served me well for 14 years before its maker decided it should stop working.
 
@@ -40,6 +32,8 @@ The codebase is annotated with "decompilation" comments referencing `QBW32.EXE` 
 - **Batch Payments** — Apply payments to multiple invoices across multiple customers in a single transaction
 - **Credit Memos** — Issue credits against customers, apply to invoices to reduce balance due. Proper reversing journal entries
 - **Quick Entry Mode** — Batch invoice entry for paper invoice backlog. Save & Next (Ctrl+Enter) with running log
+
+![Invoices with IRS Pub 583 Mock Data](screenshots/invoices.png)
 
 ### Accounts Payable
 - **Purchase Orders** — Non-posting documents to vendors with auto-numbering, convert-to-bill workflow
@@ -84,11 +78,25 @@ The codebase is annotated with "decompilation" comments referencing `QBW32.EXE` 
 - Recent invoices and payments tables
 - Bank balances at a glance
 
+![Dashboard — Light Mode](screenshots/dashboard-light.png)
+
+![Dashboard — Dark Mode](screenshots/dashboard-dark.png)
+
 ### Online Payments
 - **Stripe Checkout** — Accept online payments via Stripe's hosted checkout page. Customers click "Pay Online" in emailed invoices, pay on Stripe, and the payment auto-records with journal entries (DR Undeposited Funds, CR A/R)
 - **Public Payment Page** — Standalone `/pay/{token}` page (no login required) shows invoice summary with "Pay with Stripe" button. Supports light/dark mode
 - **Copy Payment Link** — One-click copy of the public payment URL from the invoice view modal
 - **Webhook Handler** — Idempotent Stripe webhook processes `checkout.session.completed` events with signature verification
+- **Setup Guide** — See **[SETUP_STRIPE.md](SETUP_STRIPE.md)**
+
+### QuickBooks Online Integration
+- **OAuth 2.0** — Connect to QuickBooks Online via Intuit's OAuth Authorization Code flow with automatic token refresh
+- **Import from QBO** — Pull accounts, customers, vendors, items, invoices, and payments from QBO with dependency-ordered import and duplicate detection
+- **Export to QBO** — Push Slowbooks data to QBO with entity type mapping and ID tracking
+- **ID Mapping** — `qbo_mappings` table tracks QBO ID ↔ Slowbooks ID per entity for dedup and re-sync
+- **Setup Guide** — See **[SETUP_QBO.md](SETUP_QBO.md)**
+
+![QuickBooks Online Integration](screenshots/qbo-integration.png)
 
 ### Communication & Export
 - **Invoice Email** — Send invoices as PDF attachments via SMTP with configurable email settings. Includes "Pay Online" button when Stripe is enabled
@@ -128,13 +136,14 @@ The codebase is annotated with "decompilation" comments referencing `QBW32.EXE` 
 
 | Component | Technology |
 |-----------|-----------|
-| Backend | Python 3.12 + FastAPI (30 routers, 140+ routes) |
+| Backend | Python 3.12 + FastAPI (31 routers, 144+ routes) |
 | Database | PostgreSQL 16 + SQLAlchemy 2.0 |
 | Migrations | Alembic |
 | Frontend | Vanilla HTML/CSS/JS (no framework) |
 | PDF | WeasyPrint 60.2 + Jinja2 |
 | Bank Import | ofxparse (OFX/QFX) |
 | Payments | Stripe Checkout (hosted) |
+| QBO Sync | python-quickbooks + intuit-oauth (OAuth 2.0) |
 | Port | 3001 |
 
 ---
@@ -214,7 +223,8 @@ SlowBooks-Pro-2026/
 │   │   ├── tax.py            # Tax category mappings
 │   │   ├── backups.py        # Backup records
 │   │   ├── companies.py      # Multi-company records
-│   │   └── payroll.py        # Employees, pay runs, pay stubs
+│   │   ├── payroll.py        # Employees, pay runs, pay stubs
+│   │   └── qbo_mapping.py    # QBO ↔ Slowbooks ID mappings
 │   ├── schemas/              # Pydantic request/response models
 │   ├── routes/               # FastAPI routers (28 routers)
 │   ├── services/
@@ -233,7 +243,10 @@ SlowBooks-Pro-2026/
 │   │   ├── iif_export.py     # IIF export (8 export functions)
 │   │   ├── iif_import.py     # IIF parser + import + validation
 │   │   ├── pdf_service.py    # WeasyPrint PDF generation
-│   │   └── stripe_service.py # Stripe Checkout + webhook verification
+│   │   ├── stripe_service.py # Stripe Checkout + webhook verification
+│   │   ├── qbo_service.py    # QBO OAuth + token management + client factory
+│   │   ├── qbo_import.py     # Import 6 entity types from QBO
+│   │   └── qbo_export.py     # Export 6 entity types to QBO
 │   ├── templates/            # Jinja2 templates (PDF, email)
 │   ├── seed/                 # Chart of Accounts seed data
 │   └── static/
@@ -254,7 +267,7 @@ SlowBooks-Pro-2026/
 
 ## Database Schema
 
-35 tables with a double-entry accounting foundation:
+36 tables with a double-entry accounting foundation:
 
 | Table | Purpose |
 |-------|---------|
@@ -293,6 +306,7 @@ SlowBooks-Pro-2026/
 | `employees` | Employee records for payroll |
 | `pay_runs` | Pay run headers with totals |
 | `pay_stubs` | Individual pay stubs with withholding breakdowns |
+| `qbo_mappings` | QBO ID ↔ Slowbooks ID mapping for sync deduplication |
 
 ---
 
@@ -372,6 +386,18 @@ All endpoints under `/api/`. Swagger docs at `/docs`. 132 routes across 28 route
 | `/api/csv/import/{type}` | POST | Import CSV file |
 | `/api/bank-import/preview` | POST | Preview OFX/QFX transactions |
 | `/api/bank-import/import/{id}` | POST | Import OFX/QFX into bank account |
+
+### QuickBooks Online
+| Endpoint | Methods | Description |
+|----------|---------|-------------|
+| `/api/qbo/auth-url` | GET | Generate Intuit OAuth authorization URL |
+| `/api/qbo/callback` | GET | OAuth redirect handler (stores tokens) |
+| `/api/qbo/disconnect` | POST | Clear stored QBO tokens |
+| `/api/qbo/status` | GET | Connection status (never returns raw tokens) |
+| `/api/qbo/import` | POST | Import all entity types from QBO |
+| `/api/qbo/import/{entity}` | POST | Import single entity type |
+| `/api/qbo/export` | POST | Export all entity types to QBO |
+| `/api/qbo/export/{entity}` | POST | Export single entity type |
 
 ### Online Payments
 | Endpoint | Methods | Description |

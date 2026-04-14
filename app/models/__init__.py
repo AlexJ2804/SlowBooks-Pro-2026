@@ -30,6 +30,9 @@ from app.models.backups import Backup
 from app.models.companies import Company
 from app.models.payroll import Employee, PayRun, PayStub
 
+# Phase 8: QuickBooks Online
+from app.models.qbo_mapping import QBOMapping
+
 __all__ = [
     "Account", "Customer", "Vendor", "Item",
     "Transaction", "TransactionLine",
@@ -52,4 +55,6 @@ __all__ = [
     "TaxCategoryMapping", "Backup",
     # Phase 6
     "Company", "Employee", "PayRun", "PayStub",
+    # Phase 8
+    "QBOMapping",
 ]
