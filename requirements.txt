@@ -12,3 +12,4 @@ pydyf==0.9.0
 python-multipart==0.0.12
 ofxparse>=0.21
 python-dateutil>=2.9.0
+stripe>=8.0.0

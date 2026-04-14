@@ -27,6 +27,12 @@ td { padding: 8px; border-bottom: 1px solid #eee; }
 
     <p class="amount">Amount Due: ${{ "%.2f"|format(inv.balance_due|float) }}</p>
 
+    {% if pay_url %}
+    <p style="margin: 20px 0; text-align: center;">
+        <a href="{{ pay_url }}" style="display: inline-block; padding: 12px 32px; background: #003366; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">Pay Online</a>
+    </p>
+    {% endif %}
+
     {% if inv.notes %}
     <p style="color:#666;">{{ inv.notes }}</p>
     {% endif %}

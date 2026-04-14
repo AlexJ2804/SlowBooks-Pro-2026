@@ -9,7 +9,7 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
@@ -311,7 +311,7 @@ def mark_invoice_sent(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{invoice_id}/email")
-def email_invoice(invoice_id: int, data: dict, db: Session = Depends(get_db)):
+def email_invoice(invoice_id: int, data: dict, request: Request, db: Session = Depends(get_db)):
     """Email invoice as PDF attachment — Feature 8"""
     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not inv:
@@ -322,7 +322,14 @@ def email_invoice(invoice_id: int, data: dict, db: Session = Depends(get_db)):
         from app.models.email_log import EmailLog
 
         pdf_bytes = generate_invoice_pdf(inv, company)
-        html_body = render_invoice_email(inv, company)
+
+        # Build pay URL if Stripe is enabled and invoice has a payment token
+        pay_url = None
+        if company.get("stripe_enabled") == "true" and inv.payment_token:
+            base_url = str(request.base_url).rstrip("/")
+            pay_url = f"{base_url}/pay/{inv.payment_token}"
+
+        html_body = render_invoice_email(inv, company, pay_url=pay_url)
         send_email(
             to_email=data.get("recipient", ""),
             subject=data.get("subject", f"Invoice #{inv.invoice_number}"),

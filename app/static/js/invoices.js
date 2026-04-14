@@ -92,6 +92,7 @@ const InvoicesPage = {
                 <button class="btn btn-secondary" onclick="window.open('/api/invoices/${inv.id}/pdf','_blank')">Print / PDF</button>
                 <button class="btn btn-secondary" onclick="InvoicesPage.duplicate(${inv.id})">Duplicate</button>
                 <button class="btn btn-secondary" onclick="InvoicesPage.emailInvoice(${inv.id})">Email Invoice</button>
+                <button class="btn btn-secondary" onclick="InvoicesPage.copyPaymentLink(${inv.id})">Copy Payment Link</button>
                 ${inv.status === 'draft' ? `<button class="btn btn-primary" onclick="InvoicesPage.markSent(${inv.id})">Mark Sent</button>` : ''}
                 ${inv.status !== 'void' ? `<button class="btn btn-danger" onclick="InvoicesPage.void(${inv.id})">Void Invoice</button>` : ''}
                 <button class="btn btn-secondary" onclick="closeModal()">Close</button>
@@ -123,6 +124,14 @@ const InvoicesPage = {
             toast(`Duplicated as Invoice #${inv.invoice_number}`);
             closeModal();
             App.navigate('#/invoices');
+        } catch (err) { toast(err.message, 'error'); }
+    },
+
+    async copyPaymentLink(id) {
+        try {
+            const data = await API.get(`/stripe/payment-link/${id}`);
+            await navigator.clipboard.writeText(data.url);
+            toast('Payment link copied to clipboard');
         } catch (err) { toast(err.message, 'error'); }
     },
 

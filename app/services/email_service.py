@@ -89,11 +89,11 @@ def send_email(db: Session, to_email: str, subject: str, html_body: str,
         return False
 
 
-def render_invoice_email(invoice, company_settings: dict) -> str:
+def render_invoice_email(invoice, company_settings: dict, pay_url: str = None) -> str:
     """Render the invoice email HTML body."""
     try:
         template = _jinja_env.get_template("invoice_email.html")
-        return template.render(inv=invoice, company=company_settings)
+        return template.render(inv=invoice, company=company_settings, pay_url=pay_url)
     except Exception:
         # Fallback simple email
         company_name = company_settings.get("company_name", "Our Company")

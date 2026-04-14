@@ -38,6 +38,8 @@ from app.routes import uploads
 from app.routes import bank_import, tax, backups
 # Phase 6: Ambitious
 from app.routes import companies, employees, payroll
+# Phase 7: Online Payments
+from app.routes import stripe_payments, public
 
 from app.database import SessionLocal
 from app.services.audit import register_audit_hooks
@@ -88,6 +90,9 @@ app.include_router(backups.router)
 app.include_router(companies.router)
 app.include_router(employees.router)
 app.include_router(payroll.router)
+# Phase 7: Online Payments
+app.include_router(stripe_payments.router)
+app.include_router(public.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)

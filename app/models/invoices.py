@@ -10,6 +10,7 @@
 # ============================================================================
 
 import enum
+import uuid
 
 from sqlalchemy import (
     Column, Integer, String, Date, Numeric, DateTime, Text, Enum,
@@ -63,6 +64,11 @@ class Invoice(Base):
 
     notes = Column(Text, nullable=True)
     transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=True)
+
+    # Stripe online payments
+    payment_token = Column(String(36), unique=True, nullable=True, index=True,
+                           default=lambda: str(uuid.uuid4()))
+    stripe_checkout_session_id = Column(String(255), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

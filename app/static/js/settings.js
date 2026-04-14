@@ -122,6 +122,26 @@ const SettingsPage = {
                 </div>
 
                 <div class="settings-section">
+                    <h3>Online Payments (Stripe)</h3>
+                    <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
+                        Accept online payments via Stripe Checkout. Customers can pay invoices directly from emailed links.
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Enable Online Payments</label>
+                            <select name="stripe_enabled">
+                                <option value="false" ${s.stripe_enabled !== 'true' ? 'selected' : ''}>Disabled</option>
+                                <option value="true" ${s.stripe_enabled === 'true' ? 'selected' : ''}>Enabled</option>
+                            </select></div>
+                        <div class="form-group"><label>Publishable Key</label>
+                            <input name="stripe_publishable_key" value="${escapeHtml(s.stripe_publishable_key || '')}" placeholder="pk_..."></div>
+                        <div class="form-group"><label>Secret Key</label>
+                            <input name="stripe_secret_key" type="password" value="${escapeHtml(s.stripe_secret_key || '')}" placeholder="sk_..."></div>
+                        <div class="form-group"><label>Webhook Secret</label>
+                            <input name="stripe_webhook_secret" type="password" value="${escapeHtml(s.stripe_webhook_secret || '')}" placeholder="whsec_..."></div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
                     <h3>Backup / Restore</h3>
                     <div style="display:flex; gap:8px; margin-bottom:12px;">
                         <button type="button" class="btn btn-primary" onclick="SettingsPage.createBackup()">Create Backup</button>
