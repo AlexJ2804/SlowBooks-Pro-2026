@@ -42,8 +42,11 @@ const VendorsPage = {
     async showForm(id = null) {
         let v = { name:'', company:'', email:'', phone:'', fax:'', website:'',
             address1:'', address2:'', city:'', state:'', zip:'',
-            terms:'Net 30', tax_id:'', account_number:'', notes:'' };
+            terms:'Net 30', tax_id:'', account_number:'', default_expense_account_id:'', notes:'' };
         if (id) v = await API.get(`/vendors/${id}`);
+
+        const accounts = await API.get('/accounts?account_type=expense');
+        const acctOpts = accounts.map(a => `<option value="${a.id}" ${v.default_expense_account_id==a.id?'selected':''}>${escapeHtml(a.account_number)} - ${escapeHtml(a.name)}</option>`).join('');
 
         openModal(id ? 'Edit Vendor' : 'New Vendor', `
             <form id="vendor-form" onsubmit="VendorsPage.save(event, ${id})">
@@ -84,6 +87,8 @@ const VendorsPage = {
                         <input name="tax_id" value="${escapeHtml(v.tax_id || '')}"></div>
                     <div class="form-group"><label>Account #</label>
                         <input name="account_number" value="${escapeHtml(v.account_number || '')}"></div>
+                    <div class="form-group"><label>Default Expense Account</label>
+                        <select name="default_expense_account_id"><option value="">-- None --</option>${acctOpts}</select></div>
                     <div class="form-group full-width"><label>Notes</label>
                         <textarea name="notes">${escapeHtml(v.notes || '')}</textarea></div>
                 </div>
@@ -97,6 +102,7 @@ const VendorsPage = {
     async save(e, id) {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
+        data.default_expense_account_id = data.default_expense_account_id ? parseInt(data.default_expense_account_id) : null;
         try {
             if (id) { await API.put(`/vendors/${id}`, data); toast('Vendor updated'); }
             else { await API.post('/vendors', data); toast('Vendor created'); }

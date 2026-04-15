@@ -54,3 +54,49 @@ def generate_statement_pdf(customer, invoices, payments, company_settings: dict,
         company=company_settings, as_of_date=as_of_date,
     )
     return HTML(string=html_str).write_pdf()
+
+
+def _amount_to_words(amount) -> str:
+    """Convert a decimal amount to words for check printing.
+    E.g., 1234.56 -> 'One Thousand Two Hundred Thirty-Four and 56/100'"""
+    ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven',
+            'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen',
+            'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
+    tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty',
+            'Sixty', 'Seventy', 'Eighty', 'Ninety']
+
+    def _int_to_words(n):
+        if n == 0:
+            return 'Zero'
+        if n < 0:
+            return 'Negative ' + _int_to_words(-n)
+        parts = []
+        if n >= 1000000:
+            parts.append(_int_to_words(n // 1000000) + ' Million')
+            n %= 1000000
+        if n >= 1000:
+            parts.append(_int_to_words(n // 1000) + ' Thousand')
+            n %= 1000
+        if n >= 100:
+            parts.append(ones[n // 100] + ' Hundred')
+            n %= 100
+        if n >= 20:
+            word = tens[n // 10]
+            if n % 10:
+                word += '-' + ones[n % 10]
+            parts.append(word)
+        elif n > 0:
+            parts.append(ones[n])
+        return ' '.join(parts)
+
+    amt = float(amount or 0)
+    dollars = int(amt)
+    cents = round((amt - dollars) * 100)
+    return f"{_int_to_words(dollars)} and {cents:02d}/100"
+
+
+def generate_check_pdf(check_data: dict, company_settings: dict) -> bytes:
+    template = _jinja_env.get_template("check_pdf.html")
+    check_data["amount_words"] = _amount_to_words(check_data.get("amount", 0))
+    html_str = template.render(check=check_data, company=company_settings)
+    return HTML(string=html_str).write_pdf()

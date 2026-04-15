@@ -89,7 +89,8 @@ const InvoicesPage = {
             </div>
             ${inv.notes ? `<p style="margin-top:12px;color:var(--gray-500);">${escapeHtml(inv.notes)}</p>` : ''}
             <div class="form-actions">
-                <button class="btn btn-secondary" onclick="window.open('/api/invoices/${inv.id}/pdf','_blank')">Print / PDF</button>
+                <button class="btn btn-secondary" onclick="window.open('/api/invoices/${inv.id}/pdf','_blank')">Save PDF</button>
+                <button class="btn btn-secondary" onclick="window.open('/api/invoices/${inv.id}/print-preview','_blank')">Print</button>
                 <button class="btn btn-secondary" onclick="InvoicesPage.duplicate(${inv.id})">Duplicate</button>
                 <button class="btn btn-secondary" onclick="InvoicesPage.emailInvoice(${inv.id})">Email Invoice</button>
                 <button class="btn btn-secondary" onclick="InvoicesPage.copyPaymentLink(${inv.id})">Copy Payment Link</button>
@@ -201,7 +202,17 @@ const InvoicesPage = {
             <form id="invoice-form" onsubmit="InvoicesPage.save(event, ${id})">
                 <div class="form-grid">
                     <div class="form-group"><label>Customer *</label>
-                        <select name="customer_id" required onchange="InvoicesPage.customerSelected(this.value)"><option value="">Select...</option>${custOpts}</select></div>
+                        <select name="customer_id" id="inv-customer-select" required onchange="InvoicesPage.customerSelected(this.value)"><option value="">Select...</option><option value="__new__">+ New Customer</option>${custOpts}</select>
+                        <div id="inv-new-customer-form" style="display:none; margin-top:8px; padding:8px; border:1px solid var(--gray-300); border-radius:4px; background:var(--primary-light);">
+                            <div style="font-weight:700; font-size:11px; margin-bottom:6px;">Quick Add Customer</div>
+                            <input id="inv-new-cust-name" placeholder="Name *" style="width:100%; margin-bottom:4px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;">
+                            <input id="inv-new-cust-email" placeholder="Email" style="width:100%; margin-bottom:4px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;">
+                            <input id="inv-new-cust-phone" placeholder="Phone" style="width:100%; margin-bottom:4px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;">
+                            <div style="display:flex; gap:6px;">
+                                <button type="button" class="btn btn-sm btn-primary" onclick="InvoicesPage.saveNewCustomer()">Save</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="InvoicesPage.cancelNewCustomer()">Cancel</button>
+                            </div>
+                        </div></div>
                     <div class="form-group"><label>Date *</label>
                         <input name="date" type="date" required value="${inv.date}"></div>
                     <div class="form-group"><label>Terms</label>
@@ -243,11 +254,41 @@ const InvoicesPage = {
     },
 
     customerSelected(customerId) {
+        if (customerId === '__new__') {
+            const form = $('#inv-new-customer-form');
+            if (form) form.style.display = 'block';
+            return;
+        }
+        const ncf = $('#inv-new-customer-form');
+        if (ncf) ncf.style.display = 'none';
         const customer = InvoicesPage._customers.find(c => c.id == customerId);
         const termsField = $('#invoice-terms');
         if (customer && termsField && customer.terms) {
             termsField.value = customer.terms;
         }
+    },
+
+    async saveNewCustomer() {
+        const name = $('#inv-new-cust-name').value.trim();
+        if (!name) { toast('Customer name is required', 'error'); return; }
+        try {
+            const cust = await API.post('/customers', {
+                name, email: $('#inv-new-cust-email').value.trim() || null,
+                phone: $('#inv-new-cust-phone').value.trim() || null,
+            });
+            InvoicesPage._customers.push(cust);
+            const sel = $('#inv-customer-select');
+            const opt = document.createElement('option');
+            opt.value = cust.id; opt.textContent = cust.name; opt.selected = true;
+            sel.appendChild(opt);
+            $('#inv-new-customer-form').style.display = 'none';
+            toast(`Customer "${cust.name}" created`);
+        } catch (err) { toast(err.message, 'error'); }
+    },
+
+    cancelNewCustomer() {
+        $('#inv-new-customer-form').style.display = 'none';
+        $('#inv-customer-select').value = '';
     },
 
     lineRowHtml(idx, line, items) {

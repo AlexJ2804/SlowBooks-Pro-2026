@@ -251,6 +251,31 @@ def invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/{invoice_id}/print-preview")
+def invoice_print_preview(invoice_id: int, db: Session = Depends(get_db)):
+    """Render invoice as HTML page for browser print dialog (window.print())"""
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    company = get_settings(db)
+    from jinja2 import Environment, FileSystemLoader
+    from pathlib import Path
+    template_dir = Path(__file__).parent.parent / "templates"
+    env = Environment(loader=FileSystemLoader(str(template_dir)))
+    from app.services.pdf_service import _format_currency, _format_date
+    env.filters["currency"] = _format_currency
+    env.filters["fdate"] = _format_date
+    template = env.get_template("invoice_pdf.html")
+    # Add customer_name to invoice object for template
+    if inv.customer and not hasattr(inv, 'customer_name'):
+        inv.customer_name = inv.customer.name
+    html_str = template.render(inv=inv, company=company)
+    # Wrap with auto-print script
+    html_str = html_str.replace("</body>", "<script>window.onload=function(){window.print();}</script></body>")
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html_str)
+
+
 @router.post("/{invoice_id}/void", response_model=InvoiceResponse)
 def void_invoice(invoice_id: int, db: Session = Depends(get_db)):
     """CInvoice::VoidTransaction() @ 0x0015DA00 — creates reversing entry"""

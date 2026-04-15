@@ -42,6 +42,8 @@ from app.routes import companies, employees, payroll
 from app.routes import stripe_payments, public
 # Phase 8: QuickBooks Online
 from app.routes import qbo
+# Phase 9: Forum Bug Fixes & Missing Features
+from app.routes import journal, deposits, cc_charges, checks
 
 from app.database import SessionLocal
 from app.services.audit import register_audit_hooks
@@ -97,6 +99,11 @@ app.include_router(stripe_payments.router)
 app.include_router(public.router)
 # Phase 8: QuickBooks Online
 app.include_router(qbo.router)
+# Phase 9: Forum Bug Fixes & Missing Features
+app.include_router(journal.router)
+app.include_router(deposits.router)
+app.include_router(cc_charges.router)
+app.include_router(checks.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)

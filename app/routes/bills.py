@@ -95,6 +95,8 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db)):
             item = db.query(Item).filter(Item.id == line_data.item_id).first()
             if item and item.expense_account_id:
                 expense_acct = item.expense_account_id
+        if not expense_acct and vendor.default_expense_account_id:
+            expense_acct = vendor.default_expense_account_id
         if not expense_acct:
             expense_acct = default_expense_id
 

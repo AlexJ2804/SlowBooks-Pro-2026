@@ -216,6 +216,58 @@ def sales_tax_report(
     }
 
 
+@router.post("/sales-tax/pay")
+def pay_sales_tax(data: dict, db: Session = Depends(get_db)):
+    """Record a sales tax payment — DR Sales Tax Payable, CR Bank Account"""
+    from app.services.accounting import create_journal_entry, get_sales_tax_account_id
+    from app.services.closing_date import check_closing_date
+
+    pay_date = date.fromisoformat(data.get("date", date.today().isoformat()))
+    check_closing_date(db, pay_date)
+
+    amount = Decimal(str(data.get("amount", 0)))
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+
+    pay_from_account_id = data.get("pay_from_account_id")
+    if not pay_from_account_id:
+        raise HTTPException(status_code=400, detail="Bank account required")
+
+    bank_account = db.query(Account).filter(Account.id == int(pay_from_account_id)).first()
+    if not bank_account:
+        raise HTTPException(status_code=404, detail="Bank account not found")
+
+    tax_account_id = get_sales_tax_account_id(db)
+    if not tax_account_id:
+        raise HTTPException(status_code=400, detail="Sales Tax Payable account (2200) not found")
+
+    journal_lines = [
+        {
+            "account_id": tax_account_id,
+            "debit": amount,
+            "credit": Decimal("0"),
+            "description": "Sales tax payment",
+        },
+        {
+            "account_id": int(pay_from_account_id),
+            "debit": Decimal("0"),
+            "credit": amount,
+            "description": "Sales tax payment",
+        },
+    ]
+
+    check_number = data.get("check_number", "")
+    reference = data.get("reference", check_number)
+
+    txn = create_journal_entry(
+        db, pay_date, "Sales Tax Payment",
+        journal_lines, source_type="sales_tax_payment",
+        reference=reference,
+    )
+    db.commit()
+    return {"status": "ok", "transaction_id": txn.id, "amount": float(amount)}
+
+
 @router.get("/general-ledger")
 def general_ledger(
     start_date: date = Query(default=None),

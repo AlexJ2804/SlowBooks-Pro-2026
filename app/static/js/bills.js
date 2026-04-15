@@ -80,12 +80,25 @@ const BillsPage = {
                 <div class="total-row grand-total"><span class="label">Balance</span><span class="value">${formatCurrency(bill.balance_due)}</span></div>
             </div>
             <div class="form-actions">
+                ${bill.status === 'paid' ? `<button class="btn btn-secondary" onclick="window.open('/api/bills/${bill.id}/pdf','_blank')">Save PDF</button>` : ''}
                 <button class="btn btn-secondary" onclick="closeModal()">Close</button>
             </div>`);
     },
 
     _items: [],
+    _vendors: [],
     lineCount: 0,
+
+    vendorSelected(vendorId) {
+        if (!vendorId) return;
+        const vendor = BillsPage._vendors.find(v => v.id == vendorId);
+        if (vendor && vendor.default_expense_account_id) {
+            // Store for use when adding lines
+            BillsPage._defaultExpenseAccountId = vendor.default_expense_account_id;
+        } else {
+            BillsPage._defaultExpenseAccountId = null;
+        }
+    },
 
     async showForm() {
         const [vendors, items, accounts] = await Promise.all([
@@ -96,6 +109,7 @@ const BillsPage = {
         BillsPage._items = items;
         BillsPage.lineCount = 1;
 
+        BillsPage._vendors = vendors;
         const vendorOpts = vendors.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('');
         const itemOpts = items.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('');
 
@@ -103,7 +117,7 @@ const BillsPage = {
             <form onsubmit="BillsPage.save(event)">
                 <div class="form-grid">
                     <div class="form-group"><label>Vendor *</label>
-                        <select name="vendor_id" required><option value="">Select...</option>${vendorOpts}</select></div>
+                        <select name="vendor_id" required onchange="BillsPage.vendorSelected(this.value)"><option value="">Select...</option>${vendorOpts}</select></div>
                     <div class="form-group"><label>Bill Number *</label>
                         <input name="bill_number" required></div>
                     <div class="form-group"><label>Date *</label>
