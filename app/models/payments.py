@@ -20,8 +20,8 @@ class Payment(Base):
     __tablename__ = "payments"
 
     id = Column(Integer, primary_key=True, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    date = Column(Date, nullable=False)
+    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
     amount = Column(Numeric(12, 2), nullable=False)
     method = Column(String(50), nullable=True)  # check, cash, credit_card, etc.
     check_number = Column(String(50), nullable=True)
@@ -44,7 +44,7 @@ class PaymentAllocation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     payment_id = Column(Integer, ForeignKey("payments.id", ondelete="CASCADE"), nullable=False)
-    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
+    invoice_id = Column(Integer, ForeignKey("invoices.id", ondelete="RESTRICT"), nullable=False)
     amount = Column(Numeric(12, 2), nullable=False)
 
     payment = relationship("Payment", back_populates="allocations")

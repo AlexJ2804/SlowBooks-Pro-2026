@@ -124,13 +124,14 @@ def ar_aging(as_of_date: date = Query(default=None), db: Session = Depends(get_d
         .all()
     )
 
+    customer_names = {c.id: c.name for c in db.query(Customer.id, Customer.name).all()}
+
     aging = {}
     for inv in invoices:
         cid = inv.customer_id
         if cid not in aging:
-            cname = db.query(Customer.name).filter(Customer.id == cid).scalar() or "Unknown"
             aging[cid] = {
-                "customer_name": cname, "customer_id": cid,
+                "customer_name": customer_names.get(cid, "Unknown"), "customer_id": cid,
                 "current": Decimal(0), "over_30": Decimal(0),
                 "over_60": Decimal(0), "over_90": Decimal(0), "total": Decimal(0),
             }
@@ -402,13 +403,14 @@ def ap_aging(as_of_date: date = Query(default=None), db: Session = Depends(get_d
             .all()
         )
 
+        vendor_names = {v.id: v.name for v in db.query(Vendor.id, Vendor.name).all()}
+
         aging = {}
         for bill in bills:
             vid = bill.vendor_id
             if vid not in aging:
-                vname = db.query(Vendor.name).filter(Vendor.id == vid).scalar() or "Unknown"
                 aging[vid] = {
-                    "vendor_name": vname, "vendor_id": vid,
+                    "vendor_name": vendor_names.get(vid, "Unknown"), "vendor_id": vid,
                     "current": Decimal(0), "over_30": Decimal(0),
                     "over_60": Decimal(0), "over_90": Decimal(0), "total": Decimal(0),
                 }

@@ -89,7 +89,7 @@ const PaymentsPage = {
             API.get('/customers?active_only=true'),
             API.get('/accounts'),
         ]);
-        const bankAccts = accounts.filter(a => a.account_type === 'asset' && ['1000','1010','1200'].includes(a.account_number));
+        const bankAccts = accounts.filter(a => a.account_type === 'asset');
 
         const custOpts = customers.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
         const bankOpts = bankAccts.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');

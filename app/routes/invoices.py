@@ -229,6 +229,90 @@ def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(g
         invoice.total = total
         invoice.balance_due = total - invoice.amount_paid
 
+        # Sync journal entry if one exists
+        if invoice.transaction_id:
+            from app.models.transactions import TransactionLine
+            # Reverse account balances for old lines, then delete them
+            old_lines = db.query(TransactionLine).filter(
+                TransactionLine.transaction_id == invoice.transaction_id
+            ).all()
+            for ol in old_lines:
+                account = db.query(Account).filter(Account.id == ol.account_id).first()
+                if account:
+                    # Reverse the effect that was applied when the line was created
+                    if account.account_type.value in ("asset", "expense", "cogs"):
+                        account.balance -= ol.debit - ol.credit
+                    else:
+                        account.balance -= ol.credit - ol.debit
+            db.query(TransactionLine).filter(
+                TransactionLine.transaction_id == invoice.transaction_id
+            ).delete()
+
+            # Create new balanced lines (DR A/R for new total, CR income accounts)
+            ar_id = get_ar_account_id(db)
+            default_income_id = get_default_income_account_id(db)
+            tax_account_id = get_sales_tax_account_id(db)
+
+            if ar_id and default_income_id:
+                new_journal_lines = []
+                # Debit A/R for new total
+                new_journal_lines.append({
+                    "account_id": ar_id,
+                    "debit": Decimal(str(total)),
+                    "credit": Decimal("0"),
+                    "description": f"Invoice #{invoice.invoice_number}",
+                })
+                # Credit income for each line
+                for line_data in data.lines:
+                    line_amount = Decimal(str(line_data.quantity * line_data.rate))
+                    if line_amount == 0:
+                        continue
+                    income_id = default_income_id
+                    if line_data.item_id:
+                        item = db.query(Item).filter(Item.id == line_data.item_id).first()
+                        if item and item.income_account_id:
+                            income_id = item.income_account_id
+                    new_journal_lines.append({
+                        "account_id": income_id,
+                        "debit": Decimal("0"),
+                        "credit": line_amount,
+                        "description": line_data.description or "",
+                    })
+                # Credit sales tax if any
+                if tax_amount > 0 and tax_account_id:
+                    new_journal_lines.append({
+                        "account_id": tax_account_id,
+                        "debit": Decimal("0"),
+                        "credit": Decimal(str(tax_amount)),
+                        "description": "Sales tax",
+                    })
+
+                # Add lines to existing transaction and update account balances
+                from app.models.transactions import Transaction
+                txn = db.query(Transaction).filter(Transaction.id == invoice.transaction_id).first()
+                if txn:
+                    txn.description = f"Invoice #{invoice.invoice_number} - {invoice.customer.name if invoice.customer else ''}"
+                for jl in new_journal_lines:
+                    debit = Decimal(str(jl.get("debit", 0)))
+                    credit = Decimal(str(jl.get("credit", 0)))
+                    if debit == 0 and credit == 0:
+                        continue
+                    txn_line = TransactionLine(
+                        transaction_id=invoice.transaction_id,
+                        account_id=jl["account_id"],
+                        debit=debit,
+                        credit=credit,
+                        description=jl.get("description", ""),
+                    )
+                    db.add(txn_line)
+                    # Update account balance
+                    account = db.query(Account).filter(Account.id == jl["account_id"]).first()
+                    if account:
+                        if account.account_type.value in ("asset", "expense", "cogs"):
+                            account.balance += debit - credit
+                        else:
+                            account.balance += credit - debit
+
     db.commit()
     db.refresh(invoice)
     resp = InvoiceResponse.model_validate(invoice)
@@ -262,7 +346,7 @@ def invoice_print_preview(invoice_id: int, db: Session = Depends(get_db)):
     from jinja2 import Environment, FileSystemLoader
     from pathlib import Path
     template_dir = Path(__file__).parent.parent / "templates"
-    env = Environment(loader=FileSystemLoader(str(template_dir)))
+    env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
     from app.services.pdf_service import _format_currency, _format_date
     env.filters["currency"] = _format_currency
     env.filters["fdate"] = _format_date
@@ -452,7 +536,8 @@ def apply_late_fees(db: Session = Depends(get_db)):
             journal_lines, source_type="late_fee", source_id=inv.id,
         )
 
-        # Update invoice totals
+        # Update invoice totals (add to subtotal too so total == subtotal + tax_amount)
+        inv.subtotal += fee_amount
         inv.total += fee_amount
         inv.balance_due += fee_amount
         applied += 1
@@ -519,6 +604,53 @@ def duplicate_invoice(invoice_id: int, db: Session = Depends(get_db)):
             line_order=oline.line_order,
         )
         db.add(new_line)
+
+    # Journal Entry — mirror what create_invoice does (DR A/R, CR Income per line)
+    ar_id = get_ar_account_id(db)
+    default_income_id = get_default_income_account_id(db)
+    tax_account_id = get_sales_tax_account_id(db)
+
+    if ar_id and default_income_id:
+        journal_lines = []
+        # Debit A/R for total
+        journal_lines.append({
+            "account_id": ar_id,
+            "debit": Decimal(str(new_invoice.total)),
+            "credit": Decimal("0"),
+            "description": f"Invoice #{new_number}",
+        })
+        # Credit income for each line
+        for oline in original.lines:
+            line_amount = Decimal(str(oline.amount))
+            if line_amount == 0:
+                continue
+            income_id = default_income_id
+            if oline.item_id:
+                item = db.query(Item).filter(Item.id == oline.item_id).first()
+                if item and item.income_account_id:
+                    income_id = item.income_account_id
+            journal_lines.append({
+                "account_id": income_id,
+                "debit": Decimal("0"),
+                "credit": line_amount,
+                "description": oline.description or "",
+            })
+        # Credit sales tax if any
+        if new_invoice.tax_amount and new_invoice.tax_amount > 0 and tax_account_id:
+            journal_lines.append({
+                "account_id": tax_account_id,
+                "debit": Decimal("0"),
+                "credit": Decimal(str(new_invoice.tax_amount)),
+                "description": "Sales tax",
+            })
+
+        customer = original.customer
+        txn = create_journal_entry(
+            db, today, f"Invoice #{new_number} - {customer.name if customer else ''}",
+            journal_lines, source_type="invoice", source_id=new_invoice.id,
+            reference=new_number,
+        )
+        new_invoice.transaction_id = txn.id
 
     db.commit()
     db.refresh(new_invoice)

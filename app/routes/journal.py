@@ -27,11 +27,12 @@ def list_journal_entries(source_type: str = None, db: Session = Depends(get_db))
     else:
         q = q.filter(Transaction.source_type == "manual")
     entries = q.order_by(Transaction.date.desc()).all()
+    accounts = {a.id: a for a in db.query(Account).all()}
     results = []
     for txn in entries:
         lines_data = []
         for line in txn.lines:
-            acct = db.query(Account).filter(Account.id == line.account_id).first()
+            acct = accounts.get(line.account_id)
             lines_data.append({
                 "id": line.id,
                 "account_id": line.account_id,
@@ -59,9 +60,10 @@ def get_journal_entry(entry_id: int, db: Session = Depends(get_db)):
     txn = db.query(Transaction).filter(Transaction.id == entry_id).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Journal entry not found")
+    accounts = {a.id: a for a in db.query(Account).all()}
     lines_data = []
     for line in txn.lines:
-        acct = db.query(Account).filter(Account.id == line.account_id).first()
+        acct = accounts.get(line.account_id)
         lines_data.append({
             "id": line.id,
             "account_id": line.account_id,

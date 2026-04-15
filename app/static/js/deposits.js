@@ -9,7 +9,7 @@ const DepositsPage = {
             API.get('/accounts'),
         ]);
 
-        const bankAccts = accounts.filter(a => a.account_type === 'asset' && ['1000','1010'].includes(a.account_number));
+        const bankAccts = accounts.filter(a => a.account_type === 'asset');
         const bankOpts = bankAccts.map(a => `<option value="${a.id}">${escapeHtml(a.name)} (${formatCurrency(a.balance)})</option>`).join('');
 
         let html = `

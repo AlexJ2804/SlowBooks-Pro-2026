@@ -48,7 +48,7 @@
             <button class="tb-btn" onclick="App.navigate('#/reports')">Reports</button>
             <div class="tb-sep"></div>
             <input type="text" id="global-search" class="tb-search" placeholder="Search customers, invoices..."
-                   oninput="App.globalSearch(this.value)" onkeydown="if(event.key==='Escape')this.value='';App.globalSearch('');">
+                   oninput="App.globalSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';App.globalSearch('');}">
             <div id="search-results" class="search-dropdown hidden"></div>
             <div class="topbar-right">
                 <button class="tb-btn" id="theme-toggle" onclick="App.toggleTheme()" title="Toggle Dark Mode">&#9788;</button>

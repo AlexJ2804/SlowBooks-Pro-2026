@@ -69,7 +69,7 @@ const TaxPage = {
         const taxLiability = balSheet.liabilities.find(l => l.account_number === '2200');
         const taxBalance = taxLiability ? Math.abs(taxLiability.amount) : 0;
 
-        const bankAccts = accounts.filter(a => a.account_type === 'asset' && ['1000','1010'].includes(a.account_number));
+        const bankAccts = accounts.filter(a => a.account_type === 'asset');
         const bankOpts = bankAccts.map(a => `<option value="${a.id}">${escapeHtml(a.name)} (${formatCurrency(a.balance)})</option>`).join('');
 
         openModal('Pay Sales Tax', `

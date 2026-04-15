@@ -31,6 +31,15 @@ def create_journal_entry(
     Each line must have debit > 0 OR credit > 0, not both.
     Total debits must equal total credits.
     """
+    # Validate individual lines before summing
+    for i, l in enumerate(lines):
+        debit = Decimal(str(l.get("debit", 0)))
+        credit = Decimal(str(l.get("credit", 0)))
+        if debit < 0 or credit < 0:
+            raise ValueError(f"Line {i+1}: debit and credit must be non-negative")
+        if debit > 0 and credit > 0:
+            raise ValueError(f"Line {i+1}: a line cannot have both debit and credit")
+
     total_debit = sum(Decimal(str(l.get("debit", 0))) for l in lines)
     total_credit = sum(Decimal(str(l.get("credit", 0))) for l in lines)
 

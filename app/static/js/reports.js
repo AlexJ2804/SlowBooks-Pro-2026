@@ -57,7 +57,6 @@ const ReportsPage = {
                 </div>
             </div>`;
     },
-    },
 
     periodOptions(selected) {
         const options = [

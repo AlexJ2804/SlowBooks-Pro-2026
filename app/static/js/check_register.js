@@ -4,7 +4,7 @@
 const CheckRegisterPage = {
     async render() {
         const accounts = await API.get('/accounts');
-        const bankAccts = accounts.filter(a => a.account_type === 'asset' && ['1000','1010'].includes(a.account_number));
+        const bankAccts = accounts.filter(a => a.account_type === 'asset');
         const acctOpts = bankAccts.map(a => `<option value="${a.id}">${escapeHtml(a.account_number)} - ${escapeHtml(a.name)}</option>`).join('');
 
         let html = `

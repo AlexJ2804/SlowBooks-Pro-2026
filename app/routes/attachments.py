@@ -34,15 +34,23 @@ async def upload_attachment(
     upload_dir = UPLOAD_BASE / entity_type / str(entity_id)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save file
-    file_path = upload_dir / file.filename
+    # Sanitize filename to prevent path traversal
+    safe_filename = Path(file.filename).name
+    if not safe_filename or safe_filename.startswith('.'):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    file_path = upload_dir / safe_filename
+    if not file_path.resolve().is_relative_to(upload_dir.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     content = await file.read()
+    # Limit file size to 50MB
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 50MB)")
     file_path.write_bytes(content)
 
     attachment = Attachment(
         entity_type=entity_type,
         entity_id=entity_id,
-        filename=file.filename,
+        filename=safe_filename,
         file_path=str(file_path.relative_to(Path(__file__).parent.parent / "static")),
         mime_type=file.content_type,
         file_size=len(content),
@@ -69,7 +77,10 @@ def download_attachment(attachment_id: int, db: Session = Depends(get_db)):
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    file_path = Path(__file__).parent.parent / "static" / attachment.file_path
+    static_base = (Path(__file__).parent.parent / "static").resolve()
+    file_path = (static_base / attachment.file_path).resolve()
+    if not file_path.is_relative_to(static_base):
+        raise HTTPException(status_code=400, detail="Invalid file path")
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
 
