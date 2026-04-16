@@ -12,10 +12,13 @@
 # or document number (invoices, payments) to prevent re-import collisions.
 # ============================================================================
 
+import logging
 from datetime import datetime, date
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.models.accounts import Account, AccountType
 from app.models.contacts import Customer, Vendor
@@ -132,11 +135,18 @@ def _parse_iif_date(s: str) -> date:
 
 
 def _parse_decimal(s: str) -> Decimal:
-    """Parse a decimal string, returning 0 on failure."""
+    """Parse a decimal string, returning 0 on failure.
+
+    Handles QB Mac / international formats that wrap amounts in double quotes
+    with thousands separators, e.g. `"99,250.02"` or `"-1,725.00"`.
+    """
     if not s:
         return Decimal("0")
     try:
-        return Decimal(s.strip().replace(",", ""))
+        cleaned = s.strip().strip('"').replace(",", "")
+        if not cleaned:
+            return Decimal("0")
+        return Decimal(cleaned)
     except InvalidOperation:
         return Decimal("0")
 
@@ -236,10 +246,24 @@ def import_accounts(db: Session, rows: list) -> dict:
     """Import account rows from IIF into Slowbooks.
 
     Handles colon-separated parent:child names by creating parents first.
-    Skips accounts that already exist (matched by name).
+    Skips accounts that already exist (matched by name or account_number).
+
+    Collects per-account OBAMOUNT values so the caller can build a single
+    opening-balance journal entry. Mac QuickBooks exports often carry all
+    opening balances in the ACCNT rows themselves and omit the TRNS section
+    entirely, so without this the imported books have zero balances.
     """
     imported = 0
     errors = []
+    warnings = []
+    # {account_id: Decimal} — summed per account, fed to _create_opening_balance_entry.
+    # Multiple IIF rows can collapse onto the same DB account when dedup matches
+    # by account_number (e.g. IIF "Opening Bal Equity" #3200 + our seeded
+    # "Retained Earnings" #3200); we sum their OBAMOUNTs and warn.
+    ob_map: dict = {}
+    # {account_id: source_name} — track which IIF row first set an OBAMOUNT so
+    # we can warn on collisions.
+    ob_first_source: dict = {}
 
     # Sort so parents come before children (fewer colons first)
     rows.sort(key=lambda r: r.get("NAME", "").count(":"))
@@ -278,9 +302,28 @@ def import_accounts(db: Session, rows: list) -> dict:
                 dup_q = db.query(Account).filter(
                     (Account.name == name) | (Account.account_number == acct_num)
                 )
-            if dup_q.first():
+            existing = dup_q.first()
+
+            # Parse OBAMOUNT (QB convention: positive = debit-side).
+            # Applied to either the newly-created account or an existing
+            # duplicate that still has a zero balance.
+            obamount = _parse_decimal(row.get("OBAMOUNT", ""))
+
+            if existing:
                 sp.rollback()
-                continue  # skip duplicate
+                if obamount != 0:
+                    if existing.id in ob_map:
+                        warnings.append(
+                            f"IIF account '{full_name}' deduplicated onto existing "
+                            f"'{existing.name}' which already received an opening "
+                            f"balance from '{ob_first_source[existing.id]}'. Summing "
+                            f"both OBAMOUNTs into '{existing.name}'."
+                        )
+                        ob_map[existing.id] += obamount
+                    else:
+                        ob_map[existing.id] = obamount
+                        ob_first_source[existing.id] = full_name
+                continue
 
             acct = Account(
                 name=name,
@@ -292,6 +335,9 @@ def import_accounts(db: Session, rows: list) -> dict:
             )
             db.add(acct)
             db.flush()
+            if obamount != 0:
+                ob_map[acct.id] = obamount
+                ob_first_source[acct.id] = full_name
             sp.commit()
             imported += 1
 
@@ -299,7 +345,103 @@ def import_accounts(db: Session, rows: list) -> dict:
             sp.rollback()
             errors.append({"row": i + 1, "message": str(e)})
 
-    return {"imported": imported, "errors": errors}
+    # Build a single opening-balance journal entry from OBAMOUNT values
+    # (dropping any that summed to exactly zero after merging).
+    opening_balances = [(aid, amt) for aid, amt in ob_map.items() if amt != 0]
+    ob_result = _create_opening_balance_entry(db, opening_balances)
+    if ob_result.get("warning"):
+        warnings.append(ob_result["warning"])
+
+    return {
+        "imported": imported,
+        "errors": errors,
+        "warnings": warnings,
+        "opening_balance": ob_result,
+    }
+
+
+def _create_opening_balance_entry(db: Session, balances: list) -> dict:
+    """Create a single balanced journal entry for account opening balances.
+
+    QB IIF convention: OBAMOUNT is the debit-side value.
+      positive  -> DR the account
+      negative  -> CR the account (abs value)
+    Any residual imbalance (rounding, or accounts we couldn't resolve) is
+    plugged to Retained Earnings (account 3200) so the entry always balances.
+    """
+    from datetime import date as _date
+    from app.services.accounting import create_journal_entry
+
+    if not balances:
+        return {"created": False}
+
+    lines = []
+    total = Decimal("0")
+    for acct_id, amount in balances:
+        if amount > 0:
+            lines.append({
+                "account_id": acct_id,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": "Opening balance (IIF import)",
+            })
+        else:
+            lines.append({
+                "account_id": acct_id,
+                "debit": Decimal("0"),
+                "credit": -amount,
+                "description": "Opening balance (IIF import)",
+            })
+        total += amount
+
+    # Plug any residual to Retained Earnings so the JE balances
+    if total != 0:
+        plug = (
+            db.query(Account).filter(Account.account_number == "3200").first()
+            or db.query(Account).filter(Account.name.ilike("Opening%Balance%Equity%")).first()
+            or db.query(Account).filter(Account.name.ilike("Retained%Earnings%")).first()
+        )
+        if not plug:
+            return {
+                "created": False,
+                "warning": "Could not find Retained Earnings / Opening Balance Equity "
+                           "account to balance opening entry; opening balances skipped.",
+            }
+        if total > 0:
+            lines.append({
+                "account_id": plug.id,
+                "debit": Decimal("0"),
+                "credit": total,
+                "description": "Opening balance plug",
+            })
+        else:
+            lines.append({
+                "account_id": plug.id,
+                "debit": -total,
+                "credit": Decimal("0"),
+                "description": "Opening balance plug",
+            })
+
+    try:
+        txn = create_journal_entry(
+            db,
+            _date.today(),
+            "Opening balances (IIF import)",
+            lines,
+            source_type="iif_import",
+            reference="IIF-OPENING",
+        )
+        return {
+            "created": True,
+            "transaction_id": txn.id,
+            "line_count": len(lines),
+        }
+    except Exception as e:
+        logger.exception("Failed to create opening balance journal entry")
+        return {
+            "created": False,
+            "warning": f"Opening balance journal entry failed: {e}",
+        }
 
 
 def import_customers(db: Session, rows: list) -> dict:
@@ -956,6 +1098,7 @@ def import_all(db: Session, content: str) -> dict:
     """
     result = {
         "accounts": 0,
+        "opening_balance_lines": 0,
         "customers": 0,
         "vendors": 0,
         "items": 0,
@@ -973,6 +1116,10 @@ def import_all(db: Session, content: str) -> dict:
         r = import_accounts(db, parsed["ACCNT"])
         result["accounts"] = r["imported"]
         result["errors"].extend(r["errors"])
+        result["warnings"].extend(r.get("warnings", []))
+        ob = r.get("opening_balance") or {}
+        if ob.get("created"):
+            result["opening_balance_lines"] = ob.get("line_count", 0)
 
     if parsed["CUST"]:
         r = import_customers(db, parsed["CUST"])
