@@ -119,8 +119,10 @@ const PaymentsPage = {
 
         openModal('Record Payment', `
             <form id="payment-form" onsubmit="PaymentsPage.save(event)">
-                <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
-                    Cross-currency reconciliation is not supported. Payment currency must match the invoice currency.
+                <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px; padding:6px 8px; background:var(--gray-50); border-left:2px solid var(--qb-blue);">
+                    <strong>Note:</strong> Cross-currency reconciliation is not supported. If any
+                    allocation is against an invoice in a different currency, the server will
+                    reject the request with HTTP 400 and no payment will be saved.
                 </div>
                 <div class="form-grid">
                     <div class="form-group"><label>Customer *</label>

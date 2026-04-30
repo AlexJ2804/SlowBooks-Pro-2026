@@ -303,8 +303,10 @@ const BillsPage = {
 
         openModal('Pay Bills', `
             <form onsubmit="BillsPage.savePay(event)">
-                <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
-                    Cross-currency reconciliation is not supported. All selected bills must be in the same currency as the payment.
+                <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px; padding:6px 8px; background:var(--gray-50); border-left:2px solid var(--qb-blue);">
+                    <strong>Note:</strong> Cross-currency reconciliation is not supported. If any
+                    selected bill is in a different currency than the payment, the server will
+                    reject the request with HTTP 400 and no payment will be saved.
                 </div>
                 <div class="form-grid">
                     <div class="form-group"><label>Pay From Account</label>
