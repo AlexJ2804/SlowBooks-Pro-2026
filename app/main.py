@@ -50,6 +50,8 @@ from app.routes import bank_rules, budgets, attachments, email_templates
 from app.routes import fx
 # Phase 12: Classes
 from app.routes import classes as classes_route
+# Phase 13: Receipt parsing (Anthropic vision)
+from app.routes import receipts
 
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
@@ -120,6 +122,8 @@ app.include_router(email_templates.router)
 app.include_router(fx.router)
 # Phase 12: Classes
 app.include_router(classes_route.router)
+# Phase 13: Receipt parsing
+app.include_router(receipts.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)

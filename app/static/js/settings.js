@@ -8,7 +8,12 @@
 const SettingsPage = {
     async render() {
         const s = await API.get('/settings');
-        setTimeout(() => { SettingsPage.loadBackups(); SettingsPage.loadEmailTemplates(); SettingsPage.loadClasses(); }, 0);
+        setTimeout(() => {
+            SettingsPage.loadBackups();
+            SettingsPage.loadEmailTemplates();
+            SettingsPage.loadClasses();
+            SettingsPage.renderParseCounter(s);
+        }, 0);
         return `
             <div class="page-header">
                 <h2>Company Settings</h2>
@@ -214,6 +219,50 @@ const SettingsPage = {
                             <input name="late_fee_rate" type="number" step="0.1" value="${escapeHtml(s.late_fee_rate || '1.5')}"></div>
                         <div class="form-group"><label>Grace Days</label>
                             <input name="late_fee_grace_days" type="number" value="${escapeHtml(s.late_fee_grace_days || '15')}"></div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Receipt Parsing (Anthropic API)</h3>
+                    <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
+                        Upload receipt images or PDFs and have them auto-filled into a bill confirm form.
+                        Requires an Anthropic API key. The user always reviews the extracted data before saving.
+                        <strong>Single-worker only:</strong> the post-parse attachment handoff uses an in-process
+                        token store; running with multiple workers will break the attach step.
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Enable AI receipt parsing</label>
+                            <select name="receipt_parser_enabled">
+                                <option value="false" ${s.receipt_parser_enabled !== 'true' ? 'selected' : ''}>Disabled</option>
+                                <option value="true" ${s.receipt_parser_enabled === 'true' ? 'selected' : ''}>Enabled</option>
+                            </select></div>
+                        <div class="form-group"><label>Model</label>
+                            <select name="receipt_parser_model">
+                                <option value="claude-haiku-4-5-20251001" ${(s.receipt_parser_model || 'claude-haiku-4-5-20251001') === 'claude-haiku-4-5-20251001' ? 'selected' : ''}>Haiku 4.5 (cheapest, recommended)</option>
+                                <option value="claude-sonnet-4-6" ${s.receipt_parser_model === 'claude-sonnet-4-6' ? 'selected' : ''}>Sonnet 4.6 (more accurate, ~10× cost)</option>
+                            </select>
+                            <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">Haiku handles typical receipts well. Pick Sonnet only if you see frequent extraction errors.</div>
+                        </div>
+                        <div class="form-group full-width"><label>API key</label>
+                            <input name="anthropic_api_key" type="password" value="${escapeHtml(s.anthropic_api_key || '')}" placeholder="sk-ant-..." autocomplete="off">
+                            <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">
+                                Stored server-side. After save, this field shows the masked value (••••••••<em>last4</em>); leave it as-is to keep the saved key.
+                            </div>
+                            <button type="button" class="btn btn-sm btn-secondary" id="receipt-test-conn-btn" style="margin-top:6px;" onclick="SettingsPage.testReceiptParser()">Test Connection</button>
+                            <span id="receipt-test-conn-result" style="font-size:11px; margin-left:8px;"></span>
+                        </div>
+                        <div class="form-group"><label>Max upload size</label>
+                            <select name="receipt_parser_max_file_size_mb">
+                                <option value="5" ${s.receipt_parser_max_file_size_mb === '5' ? 'selected' : ''}>5 MB</option>
+                                <option value="10" ${(s.receipt_parser_max_file_size_mb || '10') === '10' ? 'selected' : ''}>10 MB</option>
+                                <option value="25" ${s.receipt_parser_max_file_size_mb === '25' ? 'selected' : ''}>25 MB (PDF only — Anthropic caps images at 5 MB regardless)</option>
+                            </select>
+                            <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">Images are hard-capped at 5 MB by the Anthropic API even if you raise this. PDFs honor the chosen limit.</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Usage this month</label>
+                            <div id="receipt-parse-counter" style="padding-top:6px; font-weight:600;">— receipts parsed</div>
+                        </div>
                     </div>
                 </div>
 
@@ -437,5 +486,45 @@ const SettingsPage = {
             toast(archive ? 'Class archived' : 'Class unarchived');
             SettingsPage.loadClasses();
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    renderParseCounter(settings) {
+        // Settings comes from GET /api/settings; the per-month counter
+        // surfaces as a key like receipts_parsed_count_202604 if any
+        // parse has happened this month, otherwise it just isn't there.
+        const el = document.getElementById('receipt-parse-counter');
+        if (!el) return;
+        const now = new Date();
+        const yyyymm = now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0');
+        const key = `receipts_parsed_count_${yyyymm}`;
+        const raw = settings[key];
+        const n = raw ? parseInt(raw, 10) : 0;
+        el.textContent = `${Number.isFinite(n) ? n : 0} receipts parsed`;
+    },
+
+    _lastTestConnClick: 0,
+    async testReceiptParser() {
+        // 1-second debounce — Test Connection fires a real (~sub-cent)
+        // API call. Click-spam would be wasteful even if cheap.
+        const now = Date.now();
+        if (now - SettingsPage._lastTestConnClick < 1000) return;
+        SettingsPage._lastTestConnClick = now;
+
+        const btn = document.getElementById('receipt-test-conn-btn');
+        const result = document.getElementById('receipt-test-conn-result');
+        if (btn) btn.disabled = true;
+        if (result) { result.textContent = 'Testing…'; result.style.color = 'var(--gray-500)'; }
+        try {
+            const r = await API.post('/settings/test-receipt-parser', {});
+            if (r.ok) {
+                if (result) { result.textContent = '✓ ' + (r.detail || 'Connected'); result.style.color = 'var(--success, #1a7f37)'; }
+            } else {
+                if (result) { result.textContent = '✗ ' + (r.detail || 'Failed'); result.style.color = 'var(--danger, #b42318)'; }
+            }
+        } catch (err) {
+            if (result) { result.textContent = '✗ ' + (err.message || 'Failed'); result.style.color = 'var(--danger, #b42318)'; }
+        } finally {
+            if (btn) btn.disabled = false;
+        }
     },
 };

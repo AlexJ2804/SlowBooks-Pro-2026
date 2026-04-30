@@ -10,11 +10,16 @@ const BillsPage = {
         ]);
         const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
 
+        const receiptParserOn = settings.receipt_parser_enabled === 'true';
+        const uploadBtn = receiptParserOn
+            ? `<button class="btn btn-secondary" onclick="BillsPage.showUploadReceipt()">Upload Receipt</button>`
+            : '';
         let html = `
             <div class="page-header">
                 <h2>Bills (Accounts Payable)</h2>
                 <div class="btn-group">
                     <button class="btn btn-primary" onclick="BillsPage.showForm()">+ Enter Bill</button>
+                    ${uploadBtn}
                     <button class="btn btn-secondary" onclick="BillsPage.showPayForm()">Pay Bills</button>
                 </div>
             </div>
@@ -127,7 +132,11 @@ const BillsPage = {
         }
     },
 
-    async showForm() {
+    // Optional `prefill` (used by the receipt-upload flow) shape:
+    //   { vendor_id|null, vendor_name_for_inline_create|null,
+    //     date|null, currency|null, lines: [{description, quantity, rate}],
+    //     suggested_account_id|null, attachment_token|null }
+    async showForm(prefill = null) {
         const [vendors, items, accounts, settings, classes] = await Promise.all([
             API.get('/vendors?active_only=true'),
             API.get('/items?active_only=true'),
@@ -137,17 +146,62 @@ const BillsPage = {
         ]);
         BillsPage._items = items;
         BillsPage._classes = classes;
+        BillsPage._accounts = accounts;
         BillsPage.lineCount = 1;
 
         const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
         BillsPage._homeCurrency = homeCurrency;
-        BillsPage._formCurrency = homeCurrency;
+        BillsPage._formCurrency = (prefill && prefill.currency) || homeCurrency;
+
+        // Stash the receipt token (if any) so save() can call /attach
+        // after the bill is committed. Cleared by save() on success or
+        // on the next form open.
+        BillsPage._receiptAttachmentToken = (prefill && prefill.attachment_token) || null;
+        BillsPage._receiptFilename = (prefill && prefill.receipt_filename) || null;
 
         BillsPage._vendors = vendors;
-        const vendorOpts = vendors.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('');
+        const selectedVendorId = (prefill && prefill.vendor_id) || '';
+        const vendorOpts = vendors.map(v =>
+            `<option value="${v.id}"${v.id == selectedVendorId ? ' selected' : ''}>${escapeHtml(v.name)}</option>`
+        ).join('');
         const itemOpts = items.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('');
 
+        // Banner — only when this form was opened from a receipt upload.
+        const reviewBanner = prefill ? `
+            <div style="margin-bottom:10px; padding:8px 10px; background:#fff7e6; border-left:3px solid #f5a623; font-size:12px;">
+                <strong>Review extracted data before saving.</strong> AI may make mistakes.
+                ${BillsPage._receiptFilename ? `Receipt: <em>${escapeHtml(BillsPage._receiptFilename)}</em>.` : ''}
+            </div>
+        ` : '';
+
+        // Lines: either parsed from receipt (multi-row) or a single empty default row.
+        const parsedLines = (prefill && Array.isArray(prefill.lines) && prefill.lines.length)
+            ? prefill.lines
+            : [{ description: '', quantity: 1, rate: 0 }];
+        BillsPage.lineCount = parsedLines.length;
+        const linesHtml = parsedLines.map((l, idx) => `
+            <tr data-billline="${idx}">
+                <td><select class="line-item"><option value="">--</option>${itemOpts}</select></td>
+                <td><input class="line-desc" value="${escapeHtml(l.description || '')}"></td>
+                <td><input class="line-qty" type="number" step="0.01" value="${l.quantity || 1}"></td>
+                <td><input class="line-rate" type="number" step="0.01" value="${l.rate || 0}"></td>
+                <td class="col-amount">$0.00</td>
+            </tr>
+        `).join('');
+
+        // Pre-select an expense account on the vendor's default if we
+        // matched a keyword via prefill.suggested_account_id. The bill's
+        // existing form doesn't expose a per-bill default account picker,
+        // so we stash this on BillsPage._defaultExpenseAccountId where
+        // future line additions can pick it up.
+        if (prefill && prefill.suggested_account_id) {
+            BillsPage._defaultExpenseAccountId = prefill.suggested_account_id;
+        }
+
+        const dateValue = (prefill && prefill.date) || todayISO();
+
         openModal('Enter Bill', `
+            ${reviewBanner}
             <form onsubmit="BillsPage.save(event)">
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
@@ -155,11 +209,17 @@ const BillsPage = {
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BillsPage.newClass('bill-class-select')">+ New class</a></div>
                     <div class="form-group"><label>Vendor *</label>
                         <select name="vendor_id" id="bill-vendor-select" required onchange="BillsPage.vendorSelected(this.value)"><option value="">Select...</option>${vendorOpts}</select>
-                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BillsPage.newVendor()">+ New vendor</a></div>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BillsPage.newVendor()">+ New vendor</a>
+                        ${(prefill && prefill.vendor_name_for_inline_create) ? `
+                          <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">
+                            Receipt vendor "<strong>${escapeHtml(prefill.vendor_name_for_inline_create)}</strong>" didn't match an existing vendor.
+                            <a href="#" onclick="event.preventDefault(); BillsPage.newVendorPrefilled('${escapeHtml(prefill.vendor_name_for_inline_create).replace(/'/g, "\\'")}')">Create it →</a>
+                          </div>` : ''}
+                    </div>
                     <div class="form-group"><label>Bill Number *</label>
                         <input name="bill_number" required></div>
                     <div class="form-group"><label>Date *</label>
-                        <input name="date" type="date" required value="${todayISO()}"></div>
+                        <input name="date" type="date" required value="${dateValue}"></div>
                     <div class="form-group"><label>Terms</label>
                         <select name="terms">
                             ${['Net 15','Net 30','Net 45','Net 60','Due on Receipt'].map(t =>
@@ -167,22 +227,16 @@ const BillsPage = {
                         </select></div>
                     <div class="form-group"><label>Currency</label>
                         <select name="currency" id="bill-currency" onchange="BillsPage.currencyChanged()">
-                            ${currencyOptions(homeCurrency)}
+                            ${currencyOptions(BillsPage._formCurrency)}
                         </select></div>
                     <div class="form-group"><label>Exchange Rate <span style="color:var(--gray-500); font-weight:normal;">(→ ${escapeHtml(homeCurrency)})</span></label>
-                        <input name="exchange_rate" id="bill-exchange-rate" type="number" step="0.00000001" value="1" disabled></div>
+                        <input name="exchange_rate" id="bill-exchange-rate" type="number" step="0.00000001" value="1" ${BillsPage._formCurrency === homeCurrency ? 'disabled' : ''}></div>
                 </div>
                 <h3 style="margin:12px 0 8px;font-size:14px;">Line Items</h3>
                 <table class="line-items-table">
                     <thead><tr><th>Item</th><th>Description</th><th class="col-qty">Qty</th><th class="col-rate">Rate</th><th class="col-amount">Amount</th></tr></thead>
                     <tbody id="bill-lines">
-                        <tr data-billline="0">
-                            <td><select class="line-item"><option value="">--</option>${itemOpts}</select></td>
-                            <td><input class="line-desc"></td>
-                            <td><input class="line-qty" type="number" step="0.01" value="1"></td>
-                            <td><input class="line-rate" type="number" step="0.01" value="0"></td>
-                            <td class="col-amount">$0.00</td>
-                        </tr>
+                        ${linesHtml}
                     </tbody>
                 </table>
                 <button type="button" class="btn btn-sm btn-secondary" style="margin-top:8px;" onclick="BillsPage.addLine()">+ Add Line</button>
@@ -194,6 +248,168 @@ const BillsPage = {
                     <button type="submit" class="btn btn-primary">Save Bill</button>
                 </div>
             </form>`);
+
+        // If receipt prefilled a non-home currency, run the FX lookup so
+        // the rate field gets a sensible default.
+        if (BillsPage._formCurrency && BillsPage._formCurrency !== homeCurrency) {
+            BillsPage.currencyChanged();
+        }
+    },
+
+    newVendorPrefilled(name) {
+        InlineCreate.open('vendor', async (created) => {
+            const fresh = await API.get('/vendors?active_only=true');
+            BillsPage._vendors = fresh;
+            const sel = $('#bill-vendor-select');
+            if (sel) {
+                const opts = fresh.map(v =>
+                    `<option value="${v.id}"${v.id == created.id ? ' selected' : ''}>${escapeHtml(v.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">Select...</option>${opts}`;
+                sel.value = String(created.id);
+            }
+        }, { name });
+    },
+
+    // ----- Receipt upload flow ------------------------------------------
+    showUploadReceipt() {
+        openModal('Upload Receipt', `
+            <div style="font-size:12px; color:var(--gray-600); margin-bottom:12px;">
+                Upload a JPEG, PNG, WebP, or PDF receipt. We'll extract the vendor, date, total, and line items
+                using the Anthropic API; you'll review the extracted data on the bill confirm form before saving.
+                The original file is attached to the bill if you save.
+            </div>
+            <form id="receipt-upload-form" onsubmit="BillsPage.parseReceipt(event)">
+                <div class="form-group full-width">
+                    <input type="file" name="file" id="receipt-file-input" accept="image/jpeg,image/png,image/webp,application/pdf" required>
+                </div>
+                <div id="receipt-parse-status" style="font-size:12px; color:var(--gray-600); margin:8px 0;"></div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="receipt-parse-submit">Parse</button>
+                </div>
+            </form>
+        `);
+    },
+
+    async parseReceipt(e) {
+        e.preventDefault();
+        const fileInput = $('#receipt-file-input');
+        const file = fileInput && fileInput.files && fileInput.files[0];
+        if (!file) { toast('Pick a file first', 'error'); return; }
+
+        const submitBtn = $('#receipt-parse-submit');
+        const status = $('#receipt-parse-status');
+        if (submitBtn) submitBtn.disabled = true;
+        if (status) status.textContent = 'Reading your receipt… (up to 30 seconds)';
+
+        const fd = new FormData();
+        fd.append('file', file);
+
+        let payload;
+        try {
+            const resp = await fetch('/api/receipts/parse', { method: 'POST', body: fd });
+            payload = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                throw new Error(payload.detail || `HTTP ${resp.status}`);
+            }
+        } catch (err) {
+            if (status) {
+                status.innerHTML = `Could not parse: ${escapeHtml(err.message || 'unknown error')}.
+                    <a href="#" onclick="event.preventDefault(); closeModal(); BillsPage.showForm();">Enter the bill manually instead.</a>`;
+            }
+            if (submitBtn) submitBtn.disabled = false;
+            return;
+        }
+
+        // Soft-failure path: HTTP 200 but parse couldn't extract anything.
+        // Still pass the attachment_token through so the user can attach the
+        // original even if they have to fill the bill manually.
+        if (!payload.parsed) {
+            if (status) {
+                status.innerHTML = `Couldn't extract receipt data: ${escapeHtml(payload.error || 'unknown')}.
+                    Open the bill form anyway with this file attached?
+                    <button class="btn btn-sm btn-secondary" type="button" onclick="BillsPage._fallbackToManual('${escapeHtml(payload.attachment_token || '').replace(/'/g, "\\'")}', '${escapeHtml(payload.filename || 'receipt').replace(/'/g, "\\'")}')">Continue manually</button>`;
+            }
+            if (submitBtn) submitBtn.disabled = false;
+            return;
+        }
+
+        const prefill = await BillsPage._buildPrefillFromParse(payload);
+        closeModal();
+        BillsPage.showForm(prefill);
+    },
+
+    _fallbackToManual(token, filename) {
+        closeModal();
+        BillsPage.showForm({
+            attachment_token: token || null,
+            receipt_filename: filename || null,
+            lines: [{ description: '', quantity: 1, rate: 0 }],
+        });
+    },
+
+    async _buildPrefillFromParse(payload) {
+        const parsed = payload.parsed || {};
+        // Vendor: case-insensitive substring match against existing vendors.
+        // First hit wins. If nothing matches, leave vendor_id null and
+        // surface vendor_name_for_inline_create so the form can offer a
+        // pre-filled "+ New vendor" link.
+        const vendors = await API.get('/vendors?active_only=true');
+        let vendor_id = null;
+        let vendor_name_for_inline_create = null;
+        if (parsed.vendor_name) {
+            const needle = parsed.vendor_name.toLowerCase();
+            const match = vendors.find(v =>
+                (v.name || '').toLowerCase().includes(needle) ||
+                needle.includes((v.name || '').toLowerCase())
+            );
+            if (match) {
+                vendor_id = match.id;
+            } else {
+                vendor_name_for_inline_create = parsed.vendor_name;
+            }
+        }
+
+        // Expense account: case-insensitive substring match between any
+        // suggested keyword and any expense-account name. First hit wins.
+        let suggested_account_id = null;
+        const keywords = parsed.suggested_expense_account_keywords || [];
+        if (keywords.length) {
+            const accounts = await API.get('/accounts?account_type=expense');
+            outer: for (const kw of keywords) {
+                const k = (kw || '').toLowerCase();
+                if (!k) continue;
+                for (const a of accounts) {
+                    if ((a.name || '').toLowerCase().includes(k)) {
+                        suggested_account_id = a.id;
+                        break outer;
+                    }
+                }
+            }
+        }
+
+        // Lines: prefer parsed line items; if there are none but a total
+        // exists, synthesize a single line row from the total.
+        let lines = parsed.line_items || [];
+        if (lines.length === 0 && parsed.total) {
+            lines = [{
+                description: parsed.vendor_name || 'Receipt',
+                quantity: 1,
+                rate: parsed.total,
+            }];
+        }
+
+        return {
+            vendor_id,
+            vendor_name_for_inline_create,
+            date: parsed.date || null,
+            currency: parsed.currency || null,
+            lines,
+            suggested_account_id,
+            attachment_token: payload.attachment_token,
+            receipt_filename: payload.filename,
+        };
     },
 
     addLine() {
@@ -291,7 +507,7 @@ const BillsPage = {
             });
         });
         try {
-            await API.post('/bills', {
+            const created = await API.post('/bills', {
                 vendor_id: parseInt(form.vendor_id.value),
                 bill_number: form.bill_number.value,
                 date: form.date.value,
@@ -302,6 +518,22 @@ const BillsPage = {
                 class_id: parseInt(form.class_id.value),
                 lines,
             });
+            // If this bill was opened from a receipt upload, persist the
+            // original receipt as an Attachment now that the bill is saved.
+            // Failure here is non-fatal — the bill is already created.
+            if (BillsPage._receiptAttachmentToken && created && created.id) {
+                try {
+                    const fd = new FormData();
+                    fd.append('bill_id', String(created.id));
+                    fd.append('attachment_token', BillsPage._receiptAttachmentToken);
+                    await fetch('/api/receipts/attach', { method: 'POST', body: fd });
+                } catch (_) {
+                    // Surface to user but don't block the save flow.
+                    toast('Bill saved, but attaching the original receipt failed', 'error');
+                }
+                BillsPage._receiptAttachmentToken = null;
+                BillsPage._receiptFilename = null;
+            }
             toast('Bill saved');
             closeModal();
             App.navigate('#/bills');

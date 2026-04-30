@@ -299,7 +299,13 @@ const InlineCreate = {
         },
     },
 
-    async open(entityType, onCreated) {
+    // Phase-4 addition: optional `prefill` parameter. When provided, each
+    // matching form field is populated with the given value before the
+    // user sees the modal. Use case: receipt parser extracts a vendor
+    // name like "Pret A Manger", we open the inline-create vendor modal
+    // with that name already typed in so the user just clicks Save.
+    // Calling without prefill is the existing behaviour — purely additive.
+    async open(entityType, onCreated, prefill = null) {
         const cfg = InlineCreate.CONFIGS[entityType];
         if (!cfg) { toast(`Unknown inline-create type: ${entityType}`, 'error'); return; }
 
@@ -312,6 +318,8 @@ const InlineCreate = {
             ).join('');
         }
 
+        const prefillVal = (name) => (prefill && prefill[name] != null) ? String(prefill[name]) : '';
+
         const fieldHtml = cfg.fields.map(f => {
             if (f.type === 'account-select') {
                 return `<div class="form-group full-width"><label>${escapeHtml(f.label)}${f.required ? ' *' : ''}</label>
@@ -320,8 +328,9 @@ const InlineCreate = {
             }
             const t = f.type || 'text';
             const step = f.step ? ` step="${f.step}"` : '';
+            const value = escapeHtml(prefillVal(f.name));
             return `<div class="form-group full-width"><label>${escapeHtml(f.label)}${f.required ? ' *' : ''}</label>
-                <input name="${f.name}" type="${t}"${step}${f.required ? ' required' : ''}>
+                <input name="${f.name}" type="${t}"${step}${f.required ? ' required' : ''} value="${value}">
             </div>`;
         }).join('');
 
@@ -338,8 +347,11 @@ const InlineCreate = {
         $('#inline-modal-overlay').classList.remove('hidden');
         InlineCreate._activeCallback = onCreated;
         InlineCreate._activeFormId = formId;
-        // Focus the first field.
-        const firstInput = $(`#${formId} [name="${cfg.fields[0].name}"]`);
+        // Focus the first un-prefilled field if there is one (so a prefill
+        // doesn't bury the user's first edit point), otherwise the first.
+        const firstEmpty = cfg.fields.find(f => !prefillVal(f.name));
+        const focusName = (firstEmpty || cfg.fields[0]).name;
+        const firstInput = $(`#${formId} [name="${focusName}"]`);
         if (firstInput) firstInput.focus();
     },
 
