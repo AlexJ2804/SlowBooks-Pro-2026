@@ -237,6 +237,7 @@ const InvoicesPage = {
         InvoicesPage._items = items;
         InvoicesPage._customers = customers;
         InvoicesPage._homeCurrency = homeCurrency;
+        InvoicesPage._invCurrency = (inv.currency || homeCurrency).toUpperCase();
 
         const custOpts = customers.map(c => `<option value="${c.id}" ${inv.customer_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
 
@@ -320,6 +321,8 @@ const InvoicesPage = {
     async currencyChanged() {
         const ccy = $('#invoice-currency').value;
         const rateField = $('#invoice-exchange-rate');
+        InvoicesPage._invCurrency = ccy;
+        InvoicesPage.recalc();
         if (ccy === InvoicesPage._homeCurrency) {
             rateField.value = '1';
             rateField.disabled = true;
@@ -384,13 +387,14 @@ const InvoicesPage = {
 
     lineRowHtml(idx, line, items) {
         const itemOpts = items.map(i => `<option value="${i.id}" ${line.item_id==i.id?'selected':''}>${escapeHtml(i.name)}</option>`).join('');
+        const ccy = InvoicesPage._invCurrency || 'USD';
         return `<tr data-line="${idx}">
             <td><select class="line-item" onchange="InvoicesPage.itemSelected(${idx})">
                 <option value="">--</option>${itemOpts}</select></td>
             <td><input class="line-desc" value="${escapeHtml(line.description || '')}"></td>
             <td><input class="line-qty" type="number" step="0.01" value="${line.quantity || 1}" oninput="InvoicesPage.recalc()"></td>
             <td><input class="line-rate" type="number" step="0.01" value="${line.rate || 0}" oninput="InvoicesPage.recalc()"></td>
-            <td class="col-amount line-amount">${formatCurrency((line.quantity||1) * (line.rate||0))}</td>
+            <td class="col-amount line-amount">${formatCurrency((line.quantity||1) * (line.rate||0), ccy)}</td>
             <td><button type="button" class="btn btn-sm btn-danger" onclick="InvoicesPage.removeLine(${idx})">X</button></td>
         </tr>`;
     },
@@ -419,6 +423,7 @@ const InvoicesPage = {
     },
 
     recalc() {
+        const ccy = InvoicesPage._invCurrency || 'USD';
         let subtotal = 0;
         $$('#inv-lines tr').forEach(row => {
             const qty = parseFloat(row.querySelector('.line-qty')?.value) || 0;
@@ -426,13 +431,13 @@ const InvoicesPage = {
             const amount = qty * rate;
             subtotal += amount;
             const amountCell = row.querySelector('.line-amount');
-            if (amountCell) amountCell.textContent = formatCurrency(amount);
+            if (amountCell) amountCell.textContent = formatCurrency(amount, ccy);
         });
         const taxPct = parseFloat($('[name="tax_rate"]')?.value) || 0;
         const tax = subtotal * (taxPct / 100);
-        $('#inv-subtotal').textContent = formatCurrency(subtotal);
-        $('#inv-tax').textContent = formatCurrency(tax);
-        $('#inv-total').textContent = formatCurrency(subtotal + tax);
+        $('#inv-subtotal').textContent = formatCurrency(subtotal, ccy);
+        $('#inv-tax').textContent = formatCurrency(tax, ccy);
+        $('#inv-total').textContent = formatCurrency(subtotal + tax, ccy);
     },
 
     async save(e, id) {
