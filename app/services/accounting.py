@@ -50,11 +50,31 @@ def due_date_from_terms(txn_date: date, terms: str | None, default_days: int = 3
     return txn_date + timedelta(days=days)
 
 
+def uncategorized_class_id(db: Session) -> int:
+    """Return the id of the system-default 'Uncategorized' class.
+
+    System-driven journal posts (Stripe webhook, late fees, sales-tax
+    payment, IIF import, recurring fallback) call this so the
+    categorization decision is visible in code rather than implicit.
+    Raises if the class is missing — that means the migration didn't run.
+    """
+    from app.models.classes import Class
+    cls = db.query(Class).filter(Class.is_system_default == True).first()  # noqa: E712
+    if cls is None:
+        raise RuntimeError(
+            "System-default class 'Uncategorized' is missing. "
+            "Did the g8c9d0e1f2g3 migration run?"
+        )
+    return cls.id
+
+
 def create_journal_entry(
     db: Session,
     txn_date: date,
     description: str,
     lines: list[dict],
+    *,
+    class_id: int,
     source_type: str = None,
     source_id: int = None,
     reference: str = None,
@@ -66,6 +86,11 @@ def create_journal_entry(
     lines: [{"account_id": int, "debit": Decimal, "credit": Decimal}, ...]
     Each line must have debit > 0 OR credit > 0, not both.
     Total debits must equal total credits.
+
+    `class_id` is REQUIRED and keyword-only — no default. User-driven routes
+    pull it from the request body; system-driven callers must explicitly
+    pass `class_id=uncategorized_class_id(db)` so the categorization
+    decision appears in code, not implicitly.
 
     `currency` and `exchange_rate` describe the source-document currency. Each
     line's home-currency equivalent (debit/credit * exchange_rate) is stored
@@ -99,6 +124,7 @@ def create_journal_entry(
         reference=reference,
         currency=(currency or "USD").upper(),
         exchange_rate=rate,
+        class_id=class_id,
     )
     db.add(txn)
     db.flush()

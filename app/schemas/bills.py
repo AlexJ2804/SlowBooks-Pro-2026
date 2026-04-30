@@ -36,6 +36,7 @@ class BillCreate(BaseModel):
     notes: Optional[str] = None
     currency: str = "USD"
     exchange_rate: float = 1
+    class_id: Optional[int] = None
     lines: list[BillLineCreate] = []
 
 
@@ -49,6 +50,7 @@ class BillUpdate(BaseModel):
     notes: Optional[str] = None
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
+    class_id: Optional[int] = None
     lines: Optional[list[BillLineCreate]] = None
 
 
@@ -72,6 +74,7 @@ class BillResponse(BaseModel):
     currency: str = "USD"
     exchange_rate: float = 1
     home_currency_amount: float = 0
+    class_id: int
     notes: Optional[str] = None
     lines: list[BillLineResponse] = []
     created_at: Optional[datetime] = None
@@ -93,6 +96,7 @@ class BillPaymentCreate(BaseModel):
     notes: Optional[str] = None
     currency: str = "USD"
     exchange_rate: float = 1
+    class_id: Optional[int] = None
     allocations: list[BillPaymentAllocationCreate] = []
 
 
@@ -108,5 +112,6 @@ class BillPaymentResponse(BaseModel):
     currency: str = "USD"
     exchange_rate: float = 1
     home_currency_amount: float = 0
+    class_id: int
     created_at: Optional[datetime] = None
     model_config = {"from_attributes": True}

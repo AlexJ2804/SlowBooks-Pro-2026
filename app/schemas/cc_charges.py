@@ -14,6 +14,7 @@ class CCChargeCreate(BaseModel):
     reference: Optional[str] = None
     currency: str = "USD"
     exchange_rate: Decimal = Decimal("1")
+    class_id: Optional[int] = None
 
 
 class CCChargeResponse(BaseModel):
@@ -27,3 +28,4 @@ class CCChargeResponse(BaseModel):
     currency: str = "USD"
     exchange_rate: float = 1
     home_currency_amount: float = 0
+    class_id: int = 0

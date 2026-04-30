@@ -39,11 +39,13 @@ const CreditMemosPage = {
     lineCount: 0,
 
     async showForm() {
-        const [customers, items] = await Promise.all([
+        const [customers, items, classes] = await Promise.all([
             API.get('/customers?active_only=true'),
             API.get('/items?active_only=true'),
+            API.get('/classes'),
         ]);
         CreditMemosPage._items = items;
+        CreditMemosPage._classes = classes;
         CreditMemosPage.lineCount = 1;
 
         const custOpts = customers.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
@@ -52,6 +54,9 @@ const CreditMemosPage = {
         openModal('New Credit Memo', `
             <form onsubmit="CreditMemosPage.save(event)">
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="cm-class-select" required>${classOptions(classes)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); CreditMemosPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" required><option value="">Select...</option>${custOpts}</select></div>
                     <div class="form-group"><label>Date *</label>
@@ -106,18 +111,29 @@ const CreditMemosPage = {
                 line_order: i,
             });
         });
+        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
         try {
             await API.post('/credit-memos', {
                 customer_id: parseInt(form.customer_id.value),
                 date: form.date.value,
                 tax_rate: (parseFloat(form.tax_rate.value) || 0) / 100,
                 notes: form.notes.value || null,
+                class_id: parseInt(form.class_id.value),
                 lines,
             });
             toast('Credit memo created');
             closeModal();
             App.navigate('#/credit-memos');
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            CreditMemosPage._classes = fresh;
+            const sel = $('#cm-class-select');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
     },
 
     async showApply(cmId) {

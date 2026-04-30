@@ -123,10 +123,11 @@ const EstimatesPage = {
     },
 
     async showForm(id = null) {
-        const [customers, items, settings] = await Promise.all([
+        const [customers, items, settings, classes] = await Promise.all([
             API.get('/customers?active_only=true'),
             API.get('/items?active_only=true'),
             API.get('/settings'),
+            API.get('/classes'),
         ]);
 
         let est = {
@@ -135,6 +136,7 @@ const EstimatesPage = {
             expiration_date: '',
             tax_rate: (parseFloat(settings.default_tax_rate || '0') || 0) / 100,
             notes: '',
+            class_id: '',
             lines: [],
         };
         if (id) est = await API.get(`/estimates/${id}`);
@@ -142,6 +144,7 @@ const EstimatesPage = {
 
         EstimatesPage.lineCount = est.lines.length;
         EstimatesPage._items = items;
+        EstimatesPage._classes = classes;
 
         EstimatesPage._customers = customers;
         const custOpts = customers.map(c => `<option value="${c.id}" ${est.customer_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
@@ -149,6 +152,9 @@ const EstimatesPage = {
         openModal(id ? 'Edit Estimate' : 'New Estimate', `
             <form id="est-form" onsubmit="EstimatesPage.save(event, ${id})">
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="est-class-select" required>${classOptions(classes, est.class_id)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); EstimatesPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" id="est-customer-select" required onchange="EstimatesPage.customerSelected(this.value)"><option value="">Select...</option><option value="__new__">+ New Customer</option>${custOpts}</select>
                         <div id="est-new-customer-form" style="display:none; margin-top:8px; padding:8px; border:1px solid var(--gray-300); border-radius:4px; background:var(--primary-light);">
@@ -263,12 +269,14 @@ const EstimatesPage = {
             });
         });
 
+        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
         const data = {
             customer_id: parseInt(form.customer_id.value),
             date: form.date.value,
             expiration_date: form.expiration_date.value || null,
             tax_rate: (parseFloat(form.tax_rate.value) || 0) / 100,
             notes: form.notes.value || null,
+            class_id: parseInt(form.class_id.value),
             lines,
         };
 
@@ -278,5 +286,14 @@ const EstimatesPage = {
             closeModal();
             App.navigate(location.hash);
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            EstimatesPage._classes = fresh;
+            const sel = $('#est-class-select');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
     },
 };

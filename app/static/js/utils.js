@@ -156,3 +156,159 @@ function currencyOptions(selected) {
         `<option value="${c.code}"${c.code === selected ? ' selected' : ''}>${c.code} — ${c.name}</option>`
     ).join('');
 }
+
+// Class dropdown helper used by every transaction form. `classes` is the
+// list returned by GET /api/classes (already filtered to non-archived).
+// `selectedId` may be undefined for new-form blank state. The dropdown's
+// first option is intentionally empty so the user has to pick a class —
+// the backend rejects requests without a class_id with HTTP 400.
+function classOptions(classes, selectedId) {
+    const blank = `<option value="">— Pick a class —</option>`;
+    const rows = (classes || []).map(c =>
+        `<option value="${c.id}"${c.id == selectedId ? ' selected' : ''}>${escapeHtml(c.name)}${c.is_archived ? ' (archived)' : ''}</option>`
+    ).join('');
+    return blank + rows;
+}
+
+// ============================================================================
+// InlineCreate — one shared modal for "+ New X" links on transaction forms.
+//
+// Used by the four entity types that show up as dropdowns on transaction
+// forms: classes, vendors, customers, items. Calling code passes a callback
+// that receives the new row's id, so it can refresh and auto-select its
+// dropdown without losing the parent form's typed state.
+//
+// Design choices:
+// - Lives in a separate DOM container (#inline-modal-overlay) layered above
+//   the main #modal-overlay, so the parent form stays mounted and untouched.
+// - One config table (CONFIGS); the modal is rendered from that, no
+//   per-entity copies of the modal HTML.
+// - The item config's `account` field is a fixed select populated from
+//   /accounts; it explicitly does NOT spawn a nested + New account modal
+//   (per the no-recursion edge case in the spec).
+// ============================================================================
+const InlineCreate = {
+    CONFIGS: {
+        class: {
+            endpoint: '/classes',
+            title: 'New Class',
+            fields: [
+                { name: 'name', label: 'Name', required: true },
+            ],
+            buildBody: (form) => ({ name: form.name.value.trim() }),
+        },
+        vendor: {
+            endpoint: '/vendors',
+            title: 'New Vendor',
+            fields: [
+                { name: 'name', label: 'Name', required: true },
+                { name: 'email', label: 'Email', type: 'email' },
+                { name: 'phone', label: 'Phone' },
+            ],
+            buildBody: (form) => ({
+                name: form.name.value.trim(),
+                email: form.email.value.trim() || null,
+                phone: form.phone.value.trim() || null,
+            }),
+        },
+        customer: {
+            endpoint: '/customers',
+            title: 'New Customer',
+            fields: [
+                { name: 'name', label: 'Name', required: true },
+                { name: 'email', label: 'Email', type: 'email' },
+                { name: 'phone', label: 'Phone' },
+            ],
+            buildBody: (form) => ({
+                name: form.name.value.trim(),
+                email: form.email.value.trim() || null,
+                phone: form.phone.value.trim() || null,
+            }),
+        },
+        item: {
+            endpoint: '/items',
+            title: 'New Item',
+            // Item account dropdown is rendered async (see open()).
+            // No "+ New account" link inside — recursion guard.
+            fields: [
+                { name: 'name', label: 'Name', required: true },
+                { name: 'rate', label: 'Default Rate', type: 'number', step: '0.01', required: true },
+                { name: 'income_account_id', label: 'Account', type: 'account-select', required: true },
+            ],
+            buildBody: (form) => ({
+                name: form.name.value.trim(),
+                rate: parseFloat(form.rate.value) || 0,
+                income_account_id: parseInt(form.income_account_id.value),
+                item_type: 'service',
+            }),
+        },
+    },
+
+    async open(entityType, onCreated) {
+        const cfg = InlineCreate.CONFIGS[entityType];
+        if (!cfg) { toast(`Unknown inline-create type: ${entityType}`, 'error'); return; }
+
+        // For items, fetch the income/expense accounts before rendering.
+        let accountOpts = '';
+        if (entityType === 'item') {
+            const accts = await API.get('/accounts?account_types=income,expense');
+            accountOpts = accts.map(a =>
+                `<option value="${a.id}">${escapeHtml(a.account_number)} - ${escapeHtml(a.name)}</option>`
+            ).join('');
+        }
+
+        const fieldHtml = cfg.fields.map(f => {
+            if (f.type === 'account-select') {
+                return `<div class="form-group full-width"><label>${escapeHtml(f.label)}${f.required ? ' *' : ''}</label>
+                    <select name="${f.name}"${f.required ? ' required' : ''}><option value="">Select...</option>${accountOpts}</select>
+                </div>`;
+            }
+            const t = f.type || 'text';
+            const step = f.step ? ` step="${f.step}"` : '';
+            return `<div class="form-group full-width"><label>${escapeHtml(f.label)}${f.required ? ' *' : ''}</label>
+                <input name="${f.name}" type="${t}"${step}${f.required ? ' required' : ''}>
+            </div>`;
+        }).join('');
+
+        const formId = `inline-form-${Date.now()}`;
+        $('#inline-modal-title').textContent = cfg.title;
+        $('#inline-modal-body').innerHTML = `
+            <form id="${formId}" onsubmit="InlineCreate._submit(event, '${entityType}')">
+                <div class="form-grid">${fieldHtml}</div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="InlineCreate.close()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>`;
+        $('#inline-modal-overlay').classList.remove('hidden');
+        InlineCreate._activeCallback = onCreated;
+        InlineCreate._activeFormId = formId;
+        // Focus the first field.
+        const firstInput = $(`#${formId} [name="${cfg.fields[0].name}"]`);
+        if (firstInput) firstInput.focus();
+    },
+
+    async _submit(e, entityType) {
+        e.preventDefault();
+        const cfg = InlineCreate.CONFIGS[entityType];
+        const form = e.target;
+        const body = cfg.buildBody(form);
+        try {
+            const created = await API.post(cfg.endpoint, body);
+            toast(`Created ${cfg.title.replace('New ', '').toLowerCase()} "${created.name || created.id}"`);
+            InlineCreate.close();
+            if (typeof InlineCreate._activeCallback === 'function') {
+                InlineCreate._activeCallback(created);
+            }
+        } catch (err) {
+            toast(err.message || 'Save failed', 'error');
+        }
+    },
+
+    close() {
+        $('#inline-modal-overlay').classList.add('hidden');
+        $('#inline-modal-body').innerHTML = '';
+        InlineCreate._activeCallback = null;
+        InlineCreate._activeFormId = null;
+    },
+};

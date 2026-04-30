@@ -16,6 +16,7 @@ from app.models.items import Item
 from app.services.accounting import (
     create_journal_entry, get_ar_account_id,
     get_default_income_account_id, get_sales_tax_account_id,
+    uncategorized_class_id,
 )
 
 
@@ -77,11 +78,15 @@ def generate_due_invoices(db: Session, as_of: date = None) -> list[int]:
             except ValueError:
                 pass
 
+        # Rolled-out invoice inherits the recurring template's class.
+        # Templates always have a class (NOT NULL FK) so this is never None.
+        rolled_class_id = rec.class_id or uncategorized_class_id(db)
         invoice = Invoice(
             invoice_number=invoice_number, customer_id=rec.customer_id,
             date=rec.next_due, due_date=due_date, terms=rec.terms,
             subtotal=subtotal, tax_rate=tax_rate, tax_amount=tax_amount,
             total=total, balance_due=total, notes=rec.notes,
+            class_id=rolled_class_id,
         )
         db.add(invoice)
         db.flush()
@@ -122,6 +127,7 @@ def generate_due_invoices(db: Session, as_of: date = None) -> list[int]:
                 db, rec.next_due, f"Recurring Invoice #{invoice_number}",
                 journal_lines, source_type="invoice", source_id=invoice.id,
                 reference=invoice_number,
+                class_id=rolled_class_id,
             )
             invoice.transaction_id = txn.id
 

@@ -11,6 +11,7 @@ from app.models.recurring import RecurringInvoice, RecurringInvoiceLine
 from app.models.contacts import Customer
 from app.schemas.recurring import RecurringCreate, RecurringUpdate, RecurringResponse
 from app.services.recurring_service import generate_due_invoices
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/recurring", tags=["recurring"])
 
@@ -43,6 +44,7 @@ def get_recurring(rec_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=RecurringResponse, status_code=201)
 def create_recurring(data: RecurringCreate, db: Session = Depends(get_db)):
+    class_id = require_class_id(db, data.class_id)
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -52,6 +54,7 @@ def create_recurring(data: RecurringCreate, db: Session = Depends(get_db)):
         start_date=data.start_date, end_date=data.end_date,
         next_due=data.start_date, terms=data.terms,
         tax_rate=data.tax_rate, notes=data.notes,
+        class_id=class_id,
     )
     db.add(rec)
     db.flush()
@@ -76,7 +79,10 @@ def update_recurring(rec_id: int, data: RecurringUpdate, db: Session = Depends(g
     if not rec:
         raise HTTPException(status_code=404, detail="Recurring invoice not found")
 
-    for key, val in data.model_dump(exclude_unset=True, exclude={"lines"}).items():
+    update_data = data.model_dump(exclude_unset=True, exclude={"lines"})
+    if "class_id" in update_data:
+        update_data["class_id"] = require_class_id(db, update_data["class_id"])
+    for key, val in update_data.items():
         setattr(rec, key, val)
 
     if data.lines is not None:

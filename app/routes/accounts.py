@@ -10,12 +10,27 @@ router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 
 @router.get("", response_model=list[AccountResponse])
-def list_accounts(active_only: bool = False, account_type: str = None, db: Session = Depends(get_db)):
+def list_accounts(
+    active_only: bool = False,
+    account_type: str = None,
+    account_types: str = None,
+    db: Session = Depends(get_db),
+):
+    """List accounts.
+
+    `account_type` filters to one type (legacy); `account_types` accepts a
+    comma-separated list (e.g. ?account_types=income,expense) for the
+    inline-item modal which needs both income and expense accounts at once.
+    """
     q = db.query(Account)
     if active_only:
         q = q.filter(Account.is_active == True)
     if account_type:
         q = q.filter(Account.account_type == account_type)
+    if account_types:
+        types = [t.strip() for t in account_types.split(",") if t.strip()]
+        if types:
+            q = q.filter(Account.account_type.in_(types))
     return q.order_by(Account.account_number).all()
 
 

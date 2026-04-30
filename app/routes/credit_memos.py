@@ -21,6 +21,7 @@ from app.services.accounting import (
     compute_line_totals,
 )
 from app.services.closing_date import check_closing_date
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/credit-memos", tags=["credit_memos"])
 
@@ -64,6 +65,7 @@ def get_credit_memo(cm_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=CreditMemoResponse, status_code=201)
 def create_credit_memo(data: CreditMemoCreate, db: Session = Depends(get_db)):
     check_closing_date(db, data.date)
+    class_id = require_class_id(db, data.class_id)
 
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
     if not customer:
@@ -78,6 +80,7 @@ def create_credit_memo(data: CreditMemoCreate, db: Session = Depends(get_db)):
         subtotal=subtotal, tax_rate=data.tax_rate, tax_amount=tax_amount,
         total=total, balance_remaining=total, notes=data.notes,
         status=CreditMemoStatus.ISSUED,
+        class_id=class_id,
     )
     db.add(cm)
     db.flush()
@@ -122,6 +125,7 @@ def create_credit_memo(data: CreditMemoCreate, db: Session = Depends(get_db)):
         txn = create_journal_entry(
             db, data.date, f"Credit Memo {memo_number} - {customer.name}",
             journal_lines, source_type="credit_memo", source_id=cm.id,
+            class_id=class_id,
         )
         cm.transaction_id = txn.id
 

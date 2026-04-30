@@ -212,11 +212,13 @@ const InvoicesPage = {
     _customers: [],
 
     async showForm(id = null) {
-        const [customers, items, settings] = await Promise.all([
+        const [customers, items, settings, classes] = await Promise.all([
             API.get('/customers?active_only=true'),
             API.get('/items?active_only=true'),
             API.get('/settings'),
+            API.get('/classes'),
         ]);
+        InvoicesPage._classes = classes;
 
         const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
         let inv = {
@@ -244,6 +246,9 @@ const InvoicesPage = {
         openModal(id ? 'Edit Invoice' : 'New Invoice', `
             <form id="invoice-form" onsubmit="InvoicesPage.save(event, ${id})">
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="inv-class-select" required>${classOptions(classes, inv.class_id)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); InvoicesPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" id="inv-customer-select" required onchange="InvoicesPage.customerSelected(this.value)"><option value="">Select...</option><option value="__new__">+ New Customer</option>${custOpts}</select>
                         <div id="inv-new-customer-form" style="display:none; margin-top:8px; padding:8px; border:1px solid var(--gray-300); border-radius:4px; background:var(--primary-light);">
@@ -345,6 +350,17 @@ const InvoicesPage = {
             rateField.value = '1';
             toast(`FX lookup failed; using 1.0`, 'error');
         }
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            InvoicesPage._classes = fresh;
+            const sel = $('#inv-class-select');
+            if (sel) {
+                sel.innerHTML = classOptions(fresh, created.id);
+            }
+        });
     },
 
     customerSelected(customerId) {
@@ -455,6 +471,7 @@ const InvoicesPage = {
             });
         });
 
+        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
         const data = {
             customer_id: parseInt(form.customer_id.value),
             date: form.date.value,
@@ -464,6 +481,7 @@ const InvoicesPage = {
             notes: form.notes.value || null,
             currency: (form.currency.value || 'USD').toUpperCase(),
             exchange_rate: parseFloat(form.exchange_rate.value) || 1,
+            class_id: parseInt(form.class_id.value),
             lines,
         };
 

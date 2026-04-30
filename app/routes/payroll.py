@@ -13,7 +13,7 @@ from app.models.payroll import PayRun, PayStub, PayRunStatus, Employee
 from app.models.accounts import Account
 from app.schemas.payroll import PayRunCreate, PayRunResponse, PayStubResponse
 from app.services.payroll_service import calculate_withholdings
-from app.services.accounting import create_journal_entry
+from app.services.accounting import create_journal_entry, uncategorized_class_id
 
 router = APIRouter(prefix="/api/payroll", tags=["payroll"])
 
@@ -171,9 +171,12 @@ def process_pay_run(run_id: int, db: Session = Depends(get_db)):
                               "credit": run.total_net, "description": "Net payroll"})
 
     if journal_lines:
+        # Payroll runs are system-generated; class is set to Uncategorized
+        # so this never fails on a missing user-supplied class.
         txn = create_journal_entry(
             db, run.pay_date, f"Payroll {run.period_start} - {run.period_end}",
             journal_lines, source_type="payroll", source_id=run.id,
+            class_id=uncategorized_class_id(db),
         )
         run.transaction_id = txn.id
 

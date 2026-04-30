@@ -10,7 +10,7 @@ These tests pin that behaviour so a future refactor can't silently break it.
 from decimal import Decimal
 
 
-def _create_invoice_with_currency(client, customer_id, currency, amount="500.00"):
+def _create_invoice_with_currency(client, customer_id, class_id, currency, amount="500.00"):
     """Create a sent invoice in the given currency and return the row dict."""
     body = {
         "customer_id": customer_id,
@@ -19,6 +19,7 @@ def _create_invoice_with_currency(client, customer_id, currency, amount="500.00"
         "tax_rate": "0",
         "currency": currency,
         "exchange_rate": "1.0820" if currency == "EUR" else "1",
+        "class_id": class_id,
         "lines": [
             {"description": "Line", "quantity": "1", "rate": amount, "line_order": 0}
         ],
@@ -33,15 +34,17 @@ def _create_invoice_with_currency(client, customer_id, currency, amount="500.00"
 
 
 def test_payment_against_same_currency_invoice_succeeds_usd(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
-    inv = _create_invoice_with_currency(client, seed_customer.id, "USD")
+    cid = seed_classes["Class A"].id
+    inv = _create_invoice_with_currency(client, seed_customer.id, cid, "USD")
     r = client.post("/api/payments", json={
         "customer_id": seed_customer.id,
         "date": "2026-04-15",
         "amount": "500.00",
         "currency": "USD",
         "exchange_rate": "1",
+        "class_id": cid,
         "allocations": [{"invoice_id": inv["id"], "amount": "500.00"}],
     })
     assert r.status_code == 201, r.text
@@ -49,15 +52,17 @@ def test_payment_against_same_currency_invoice_succeeds_usd(
 
 
 def test_payment_against_same_currency_invoice_succeeds_eur(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
-    inv = _create_invoice_with_currency(client, seed_customer.id, "EUR")
+    cid = seed_classes["Class A"].id
+    inv = _create_invoice_with_currency(client, seed_customer.id, cid, "EUR")
     r = client.post("/api/payments", json={
         "customer_id": seed_customer.id,
         "date": "2026-04-15",
         "amount": "500.00",
         "currency": "EUR",
         "exchange_rate": "1.0820",
+        "class_id": cid,
         "allocations": [{"invoice_id": inv["id"], "amount": "500.00"}],
     })
     assert r.status_code == 201, r.text
@@ -65,15 +70,17 @@ def test_payment_against_same_currency_invoice_succeeds_eur(
 
 
 def test_usd_payment_against_eur_invoice_is_rejected(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
-    inv = _create_invoice_with_currency(client, seed_customer.id, "EUR")
+    cid = seed_classes["Class A"].id
+    inv = _create_invoice_with_currency(client, seed_customer.id, cid, "EUR")
     r = client.post("/api/payments", json={
         "customer_id": seed_customer.id,
         "date": "2026-04-15",
         "amount": "500.00",
         "currency": "USD",
         "exchange_rate": "1",
+        "class_id": cid,
         "allocations": [{"invoice_id": inv["id"], "amount": "500.00"}],
     })
     assert r.status_code == 400, r.text
@@ -90,15 +97,17 @@ def test_usd_payment_against_eur_invoice_is_rejected(
 
 
 def test_eur_payment_against_usd_invoice_is_rejected(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
-    inv = _create_invoice_with_currency(client, seed_customer.id, "USD")
+    cid = seed_classes["Class A"].id
+    inv = _create_invoice_with_currency(client, seed_customer.id, cid, "USD")
     r = client.post("/api/payments", json={
         "customer_id": seed_customer.id,
         "date": "2026-04-15",
         "amount": "500.00",
         "currency": "EUR",
         "exchange_rate": "1.0820",
+        "class_id": cid,
         "allocations": [{"invoice_id": inv["id"], "amount": "500.00"}],
     })
     assert r.status_code == 400, r.text
@@ -107,7 +116,7 @@ def test_eur_payment_against_usd_invoice_is_rejected(
 
 
 def test_payment_with_no_allocations_saves_regardless_of_currency(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
     """Unallocated payments are 'on account' credits — no invoice to mismatch."""
     r = client.post("/api/payments", json={
@@ -116,24 +125,27 @@ def test_payment_with_no_allocations_saves_regardless_of_currency(
         "amount": "500.00",
         "currency": "EUR",
         "exchange_rate": "1.0820",
+        "class_id": seed_classes["Class A"].id,
         "allocations": [],
     })
     assert r.status_code == 201, r.text
 
 
 def test_payment_mismatch_on_one_of_many_allocations_rejects_all(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
     """If even one of the allocations is in a mismatched currency, the entire
     request must reject — partial saves would corrupt the ledger."""
-    inv_usd = _create_invoice_with_currency(client, seed_customer.id, "USD")
-    inv_eur = _create_invoice_with_currency(client, seed_customer.id, "EUR")
+    cid = seed_classes["Class A"].id
+    inv_usd = _create_invoice_with_currency(client, seed_customer.id, cid, "USD")
+    inv_eur = _create_invoice_with_currency(client, seed_customer.id, cid, "EUR")
     r = client.post("/api/payments", json={
         "customer_id": seed_customer.id,
         "date": "2026-04-15",
         "amount": "1000.00",
         "currency": "USD",
         "exchange_rate": "1",
+        "class_id": cid,
         "allocations": [
             {"invoice_id": inv_usd["id"], "amount": "500.00"},
             {"invoice_id": inv_eur["id"], "amount": "500.00"},  # mismatch
@@ -154,7 +166,7 @@ def _create_vendor(db_session):
     return v
 
 
-def _create_bill_with_currency(client, vendor_id, currency, amount="500.00"):
+def _create_bill_with_currency(client, vendor_id, class_id, currency, amount="500.00"):
     r = client.post("/api/bills", json={
         "vendor_id": vendor_id,
         "bill_number": f"B-{currency}-{vendor_id}",
@@ -163,6 +175,7 @@ def _create_bill_with_currency(client, vendor_id, currency, amount="500.00"):
         "tax_rate": 0,
         "currency": currency,
         "exchange_rate": 1.0820 if currency == "EUR" else 1,
+        "class_id": class_id,
         "lines": [
             {"description": "Line", "quantity": 1, "rate": float(amount), "line_order": 0}
         ],
@@ -172,10 +185,11 @@ def _create_bill_with_currency(client, vendor_id, currency, amount="500.00"):
 
 
 def test_bill_payment_currency_mismatch_is_rejected(
-    client, db_session, seed_accounts
+    client, db_session, seed_accounts, seed_classes
 ):
+    cid = seed_classes["Class A"].id
     vendor = _create_vendor(db_session)
-    bill = _create_bill_with_currency(client, vendor.id, "EUR")
+    bill = _create_bill_with_currency(client, vendor.id, cid, "EUR")
     r = client.post("/api/bill-payments", json={
         "vendor_id": vendor.id,
         "date": "2026-04-15",
@@ -183,6 +197,7 @@ def test_bill_payment_currency_mismatch_is_rejected(
         "method": "check",
         "currency": "USD",
         "exchange_rate": 1,
+        "class_id": cid,
         "allocations": [{"bill_id": bill["id"], "amount": 500.00}],
     })
     assert r.status_code == 400, r.text
@@ -194,10 +209,11 @@ def test_bill_payment_currency_mismatch_is_rejected(
 
 
 def test_bill_payment_same_currency_succeeds(
-    client, db_session, seed_accounts
+    client, db_session, seed_accounts, seed_classes
 ):
+    cid = seed_classes["Class A"].id
     vendor = _create_vendor(db_session)
-    bill = _create_bill_with_currency(client, vendor.id, "EUR")
+    bill = _create_bill_with_currency(client, vendor.id, cid, "EUR")
     r = client.post("/api/bill-payments", json={
         "vendor_id": vendor.id,
         "date": "2026-04-15",
@@ -205,6 +221,7 @@ def test_bill_payment_same_currency_succeeds(
         "method": "check",
         "currency": "EUR",
         "exchange_rate": 1.0820,
+        "class_id": cid,
         "allocations": [{"bill_id": bill["id"], "amount": 500.00}],
     })
     assert r.status_code == 201, r.text

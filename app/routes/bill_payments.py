@@ -15,6 +15,7 @@ from app.models.accounts import Account
 from app.schemas.bills import BillPaymentCreate, BillPaymentResponse
 from app.services.accounting import create_journal_entry
 from app.services.closing_date import check_closing_date
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/bill-payments", tags=["bill_payments"])
 
@@ -42,6 +43,7 @@ def list_bill_payments(vendor_id: int = None, db: Session = Depends(get_db)):
 @router.post("", response_model=BillPaymentResponse, status_code=201)
 def create_bill_payment(data: BillPaymentCreate, db: Session = Depends(get_db)):
     check_closing_date(db, data.date)
+    class_id = require_class_id(db, data.class_id)
 
     vendor = db.query(Vendor).filter(Vendor.id == data.vendor_id).first()
     if not vendor:
@@ -78,6 +80,7 @@ def create_bill_payment(data: BillPaymentCreate, db: Session = Depends(get_db)):
         pay_from_account_id=data.pay_from_account_id, notes=data.notes,
         currency=currency, exchange_rate=exchange_rate,
         home_currency_amount=home_currency_amount,
+        class_id=class_id,
     )
     db.add(payment)
     db.flush()
@@ -118,6 +121,7 @@ def create_bill_payment(data: BillPaymentCreate, db: Session = Depends(get_db)):
             db, data.date, f"Bill payment to {vendor.name}",
             journal_lines, source_type="bill_payment", source_id=payment.id,
             currency=currency, exchange_rate=exchange_rate,
+            class_id=class_id,
         )
         payment.transaction_id = txn.id
 

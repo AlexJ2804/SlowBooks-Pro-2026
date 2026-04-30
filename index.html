@@ -171,6 +171,19 @@
         </div>
     </div>
 
+    <!-- Inline-create overlay (sits above the main modal so a transaction
+         form can spawn "+ New class / vendor / customer / item" without
+         losing the user's typed state in the parent form). -->
+    <div id="inline-modal-overlay" class="modal-overlay hidden" style="z-index:1200;">
+        <div id="inline-modal" class="modal" style="max-width:480px;">
+            <div class="modal-header">
+                <h2 id="inline-modal-title"></h2>
+                <button class="modal-close" onclick="InlineCreate.close()">&times;</button>
+            </div>
+            <div id="inline-modal-body"></div>
+        </div>
+    </div>
+
     <div id="toast-container"></div>
 
     <script src="/static/js/api.js"></script>

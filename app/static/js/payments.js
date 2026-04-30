@@ -104,15 +104,17 @@ const PaymentsPage = {
     _invoices: [],
 
     async showForm() {
-        const [customers, accounts, settings] = await Promise.all([
+        const [customers, accounts, settings, classes] = await Promise.all([
             API.get('/customers?active_only=true'),
             API.get('/accounts'),
             API.get('/settings'),
+            API.get('/classes'),
         ]);
         const bankAccts = accounts.filter(a => a.account_type === 'asset');
         const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
         PaymentsPage._homeCurrency = homeCurrency;
         PaymentsPage._formCurrency = homeCurrency;
+        PaymentsPage._classes = classes;
 
         const custOpts = customers.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
         const bankOpts = bankAccts.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
@@ -125,6 +127,9 @@ const PaymentsPage = {
                     reject the request with HTTP 400 and no payment will be saved.
                 </div>
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="payment-class-select" required>${classOptions(classes)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); PaymentsPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" required onchange="PaymentsPage.loadInvoices(this.value)">
                             <option value="">Select...</option>${custOpts}</select></div>
@@ -160,6 +165,15 @@ const PaymentsPage = {
                     <button type="submit" class="btn btn-primary">Record Payment</button>
                 </div>
             </form>`);
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            PaymentsPage._classes = fresh;
+            const sel = $('#payment-class-select');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
     },
 
     async currencyChanged() {
@@ -225,6 +239,7 @@ const PaymentsPage = {
     async save(e) {
         e.preventDefault();
         const form = e.target;
+        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
         const payCcy = (form.currency.value || 'USD').toUpperCase();
         const allocations = [];
         let mismatch = null;
@@ -252,6 +267,7 @@ const PaymentsPage = {
             notes: form.notes.value || null,
             currency: payCcy,
             exchange_rate: parseFloat(form.exchange_rate.value) || 1,
+            class_id: parseInt(form.class_id.value),
             allocations,
         };
 

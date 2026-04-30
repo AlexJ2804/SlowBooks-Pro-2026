@@ -27,6 +27,7 @@ class RecurringInvoice(Base):
     tax_rate = Column(Numeric(5, 4), default=0)
     notes = Column(Text, nullable=True)
     invoices_created = Column(Integer, default=0)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False, index=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

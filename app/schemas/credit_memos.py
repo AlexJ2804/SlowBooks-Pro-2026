@@ -33,6 +33,7 @@ class CreditMemoCreate(BaseModel):
     original_invoice_id: Optional[int] = None
     tax_rate: float = 0
     notes: Optional[str] = None
+    class_id: Optional[int] = None
     lines: list[CreditMemoLineCreate] = []
 
 
@@ -51,6 +52,7 @@ class CreditMemoResponse(BaseModel):
     amount_applied: float = 0
     balance_remaining: float = 0
     notes: Optional[str] = None
+    class_id: int
     lines: list[CreditMemoLineResponse] = []
     created_at: Optional[datetime] = None
     model_config = {"from_attributes": True}

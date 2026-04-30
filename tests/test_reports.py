@@ -2,20 +2,21 @@
 from decimal import Decimal
 
 
-def _mk_invoice(client, customer_id, amount="100.00", tax_rate="0", date_="2026-04-01"):
+def _mk_invoice(client, customer_id, class_id, amount="100.00", tax_rate="0", date_="2026-04-01"):
     r = client.post("/api/invoices", json={
         "customer_id": customer_id,
         "date": date_,
         "terms": "Net 30",
         "tax_rate": tax_rate,
+        "class_id": class_id,
         "lines": [{"description": "Service", "quantity": "1", "rate": amount, "line_order": 0}],
     })
     assert r.status_code == 201, r.text
     return r.json()
 
 
-def test_pl_income_shows_positive_amount(client, seed_accounts, seed_customer):
-    _mk_invoice(client, seed_customer.id, amount="100.00")
+def test_pl_income_shows_positive_amount(client, seed_accounts, seed_customer, seed_classes):
+    _mk_invoice(client, seed_customer.id, seed_classes["Class A"].id, amount="100.00")
 
     r = client.get("/api/reports/profit-loss?start_date=2026-01-01&end_date=2026-12-31")
     assert r.status_code == 200
@@ -31,9 +32,9 @@ def test_pl_income_shows_positive_amount(client, seed_accounts, seed_customer):
     assert body["total_income"] == 100.00
 
 
-def test_balance_sheet_ar_and_sales_tax_positive(client, seed_accounts, seed_customer):
+def test_balance_sheet_ar_and_sales_tax_positive(client, seed_accounts, seed_customer, seed_classes):
     # $100 invoice with 8.75% tax -> $108.75 AR, $100 revenue, $8.75 sales tax payable
-    _mk_invoice(client, seed_customer.id, amount="100.00", tax_rate="0.0875")
+    _mk_invoice(client, seed_customer.id, seed_classes["Class A"].id, amount="100.00", tax_rate="0.0875")
 
     r = client.get("/api/reports/balance-sheet?as_of_date=2026-12-31")
     assert r.status_code == 200
@@ -53,7 +54,7 @@ def test_balance_sheet_ar_and_sales_tax_positive(client, seed_accounts, seed_cus
     # balance on the raw query. Separate issue.
 
 
-def test_pl_expense_row_positive_after_bill_creation(client, db_session, seed_accounts):
+def test_pl_expense_row_positive_after_bill_creation(client, db_session, seed_accounts, seed_classes):
     # Create a vendor and a bill so we post to an expense account
     from app.models.contacts import Vendor
     v = Vendor(name="Test Vendor", is_active=True)
@@ -67,6 +68,7 @@ def test_pl_expense_row_positive_after_bill_creation(client, db_session, seed_ac
         "date": "2026-04-01",
         "terms": "Net 30",
         "tax_rate": 0,
+        "class_id": seed_classes["Class A"].id,
         "lines": [{"description": "Supplies", "quantity": 1, "rate": 250.00, "line_order": 0}],
     })
     assert r.status_code == 201, r.text
@@ -80,7 +82,7 @@ def test_pl_expense_row_positive_after_bill_creation(client, db_session, seed_ac
         assert e["amount"] >= 0, f"expense row should be >= 0, got {e}"
 
 
-def test_ar_aging_buckets_total_correctly(client, db_session, seed_accounts, seed_customer):
+def test_ar_aging_buckets_total_correctly(client, db_session, seed_accounts, seed_customer, seed_classes):
     """The exact boundary semantics (days==0 -> current vs over_30) are a naming
     judgment call rather than a bug — different systems use different conventions.
     What we want to verify: every invoice lands in exactly one bucket and the
@@ -89,8 +91,9 @@ def test_ar_aging_buckets_total_correctly(client, db_session, seed_accounts, see
     from app.models.invoices import Invoice, InvoiceStatus
     from datetime import date
 
-    inv1 = _mk_invoice(client, seed_customer.id, amount="100.00", date_="2026-04-01")
-    inv2 = _mk_invoice(client, seed_customer.id, amount="50.00", date_="2026-04-01")
+    cid = seed_classes["Class A"].id
+    inv1 = _mk_invoice(client, seed_customer.id, cid, amount="100.00", date_="2026-04-01")
+    inv2 = _mk_invoice(client, seed_customer.id, cid, amount="50.00", date_="2026-04-01")
     for i in (inv1, inv2):
         invoice = db_session.query(Invoice).filter_by(id=i["id"]).first()
         invoice.status = InvoiceStatus.SENT

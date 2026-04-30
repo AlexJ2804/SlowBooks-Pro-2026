@@ -19,7 +19,7 @@ INVOICE_IIF = (
 )
 
 
-def test_iif_import_invoice_common_case(db_session, seed_accounts):
+def test_iif_import_invoice_common_case(db_session, seed_accounts, seed_classes):
     from app.services.iif_import import parse_iif, import_transactions
     from app.models.invoices import Invoice
     from app.models.contacts import Customer
@@ -51,7 +51,7 @@ def test_iif_import_invoice_common_case(db_session, seed_accounts):
     assert total_dr == total_cr == Decimal("108.75")
 
 
-def test_iif_import_dedupes_on_doc_number(db_session, seed_accounts):
+def test_iif_import_dedupes_on_doc_number(db_session, seed_accounts, seed_classes):
     from app.services.iif_import import parse_iif, import_transactions
     from app.models.invoices import Invoice
     from app.models.contacts import Customer

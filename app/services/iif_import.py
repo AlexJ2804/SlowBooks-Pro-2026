@@ -26,7 +26,10 @@ from app.models.items import Item, ItemType
 from app.models.invoices import Invoice, InvoiceLine, InvoiceStatus
 from app.models.payments import Payment, PaymentAllocation
 from app.models.estimates import Estimate, EstimateLine, EstimateStatus
-from app.services.accounting import create_journal_entry, get_ar_account_id, get_sales_tax_account_id, get_default_income_account_id
+from app.services.accounting import (
+    create_journal_entry, get_ar_account_id, get_sales_tax_account_id,
+    get_default_income_account_id, uncategorized_class_id,
+)
 
 
 # ============================================================================
@@ -430,6 +433,7 @@ def _create_opening_balance_entry(db: Session, balances: list) -> dict:
             lines,
             source_type="iif_import",
             reference="IIF-OPENING",
+            class_id=uncategorized_class_id(db),
         )
         return {
             "created": True,
@@ -677,6 +681,9 @@ def _import_invoice(db: Session, trns: dict, spls: list) -> Invoice:
     due_date = _parse_iif_date(trns.get("DUEDATE", ""))
     total = abs(_parse_decimal(trns.get("AMOUNT", "")))
 
+    # IIF imports are system-generated; tag with Uncategorized so the import
+    # never fails on missing class.
+    uncat_id = uncategorized_class_id(db)
     invoice = Invoice(
         invoice_number=doc_num or None,
         customer_id=customer.id,
@@ -689,6 +696,7 @@ def _import_invoice(db: Session, trns: dict, spls: list) -> Invoice:
         tax_amount=Decimal("0"),
         total=total,
         balance_due=total,
+        class_id=uncat_id,
     )
     db.add(invoice)
     db.flush()
@@ -775,6 +783,7 @@ def _import_invoice(db: Session, trns: dict, spls: list) -> Invoice:
                 journal_lines,
                 source_type="invoice",
                 source_id=invoice.id,
+                class_id=uncat_id,
             )
             invoice.transaction_id = txn.id
         elif total_dr != total_cr:
@@ -794,6 +803,7 @@ def _import_invoice(db: Session, trns: dict, spls: list) -> Invoice:
                     journal_lines,
                     source_type="invoice",
                     source_id=invoice.id,
+                    class_id=uncat_id,
                 )
                 invoice.transaction_id = txn.id
 
@@ -837,12 +847,14 @@ def _import_payment(db: Session, trns: dict, spls: list) -> Payment:
         if uf_id:
             deposit_acct = db.query(Account).filter(Account.id == uf_id).first()
 
+    uncat_id = uncategorized_class_id(db)
     payment = Payment(
         customer_id=customer.id,
         date=pmt_date or date.today(),
         amount=amount,
         reference=ref or None,
         deposit_to_account_id=deposit_acct.id if deposit_acct else None,
+        class_id=uncat_id,
     )
     db.add(payment)
     db.flush()
@@ -884,6 +896,7 @@ def _import_payment(db: Session, trns: dict, spls: list) -> Payment:
             journal_lines,
             source_type="payment",
             source_id=payment.id,
+            class_id=uncat_id,
         )
         payment.transaction_id = txn.id
 
@@ -919,6 +932,7 @@ def _import_estimate(db: Session, trns: dict, spls: list) -> Estimate:
         tax_rate=Decimal("0"),
         tax_amount=Decimal("0"),
         total=total,
+        class_id=uncategorized_class_id(db),
     )
     db.add(estimate)
     db.flush()

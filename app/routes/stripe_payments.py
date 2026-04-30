@@ -20,6 +20,7 @@ class CheckoutSessionRequest(BaseModel):
     payment_token: str
 from app.services.accounting import (
     create_journal_entry, get_ar_account_id, get_undeposited_funds_id,
+    uncategorized_class_id,
 )
 from app.services.stripe_service import (
     get_stripe_settings, create_checkout_session, verify_webhook_event,
@@ -102,7 +103,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     if amount > invoice.balance_due:
         amount = invoice.balance_due
 
-    # Create payment record
+    # Create payment record. Stripe webhooks are system-generated so the
+    # Payment row gets the Uncategorized class — the user can re-tag it
+    # later via a manual journal edit if they want it on a real class.
+    uncat_id = uncategorized_class_id(db)
     payment = Payment(
         customer_id=invoice.customer_id,
         date=date.today(),
@@ -110,6 +114,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         method="stripe",
         reference=session_id,
         notes=f"Online payment via Stripe Checkout",
+        class_id=uncat_id,
     )
     db.add(payment)
     db.flush()
@@ -155,6 +160,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             f"Stripe payment — Invoice #{invoice.invoice_number}",
             journal_lines, source_type="payment", source_id=payment.id,
             reference=session_id,
+            class_id=uncat_id,
         )
         payment.transaction_id = txn.id
 

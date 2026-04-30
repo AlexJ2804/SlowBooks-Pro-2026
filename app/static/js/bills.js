@@ -128,13 +128,15 @@ const BillsPage = {
     },
 
     async showForm() {
-        const [vendors, items, accounts, settings] = await Promise.all([
+        const [vendors, items, accounts, settings, classes] = await Promise.all([
             API.get('/vendors?active_only=true'),
             API.get('/items?active_only=true'),
             API.get('/accounts?account_type=expense'),
             API.get('/settings'),
+            API.get('/classes'),
         ]);
         BillsPage._items = items;
+        BillsPage._classes = classes;
         BillsPage.lineCount = 1;
 
         const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
@@ -148,6 +150,9 @@ const BillsPage = {
         openModal('Enter Bill', `
             <form onsubmit="BillsPage.save(event)">
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="bill-class-select" required>${classOptions(classes)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BillsPage.newClass('bill-class-select')">+ New class</a></div>
                     <div class="form-group"><label>Vendor *</label>
                         <select name="vendor_id" required onchange="BillsPage.vendorSelected(this.value)"><option value="">Select...</option>${vendorOpts}</select></div>
                     <div class="form-group"><label>Bill Number *</label>
@@ -229,9 +234,19 @@ const BillsPage = {
         }
     },
 
+    newClass(targetSelectId) {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            BillsPage._classes = fresh;
+            const sel = $(`#${targetSelectId}`);
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
+    },
+
     async save(e) {
         e.preventDefault();
         const form = e.target;
+        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
         const lines = [];
         $$('#bill-lines tr').forEach((row, i) => {
             lines.push({
@@ -251,6 +266,7 @@ const BillsPage = {
                 notes: form.notes.value || null,
                 currency: (form.currency.value || 'USD').toUpperCase(),
                 exchange_rate: parseFloat(form.exchange_rate.value) || 1,
+                class_id: parseInt(form.class_id.value),
                 lines,
             });
             toast('Bill saved');
@@ -269,11 +285,12 @@ const BillsPage = {
     },
 
     async showPayForm() {
-        const [vendors, bills, accounts, settings] = await Promise.all([
+        const [vendors, bills, accounts, settings, classes] = await Promise.all([
             API.get('/vendors?active_only=true'),
             API.get('/bills?status=unpaid'),
             API.get('/accounts?account_type=asset'),
             API.get('/settings'),
+            API.get('/classes'),
         ]);
         const partials = await API.get('/bills?status=partial');
         const openBills = [...bills, ...partials];
@@ -281,6 +298,7 @@ const BillsPage = {
         const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
         BillsPage._homeCurrency = homeCurrency;
         BillsPage._payCurrency = homeCurrency;
+        BillsPage._classes = classes;
 
         const vendorOpts = vendors.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('');
         const acctOpts = accounts.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
@@ -309,6 +327,9 @@ const BillsPage = {
                     reject the request with HTTP 400 and no payment will be saved.
                 </div>
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="billpay-class-select" required>${classOptions(classes)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BillsPage.newClass('billpay-class-select')">+ New class</a></div>
                     <div class="form-group"><label>Pay From Account</label>
                         <select name="pay_from_account_id"><option value="">Select...</option>${acctOpts}</select></div>
                     <div class="form-group"><label>Date *</label>
@@ -379,6 +400,7 @@ const BillsPage = {
     async savePay(e) {
         e.preventDefault();
         const form = e.target;
+        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
         const payCcy = (form.currency.value || 'USD').toUpperCase();
         const allocations = [];
         let total = 0;
@@ -412,6 +434,7 @@ const BillsPage = {
                 pay_from_account_id: form.pay_from_account_id.value ? parseInt(form.pay_from_account_id.value) : null,
                 currency: payCcy,
                 exchange_rate: parseFloat(form.exchange_rate.value) || 1,
+                class_id: parseInt(form.class_id.value),
                 allocations,
             });
             toast('Bills paid');

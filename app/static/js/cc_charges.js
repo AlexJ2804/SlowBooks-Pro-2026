@@ -40,12 +40,14 @@ const CCChargesPage = {
     },
 
     async showForm() {
-        const [accounts, settings] = await Promise.all([
+        const [accounts, settings, classes] = await Promise.all([
             API.get('/accounts?account_type=expense'),
             API.get('/settings'),
+            API.get('/classes'),
         ]);
         const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
         CCChargesPage._homeCurrency = homeCurrency;
+        CCChargesPage._classes = classes;
         const acctOpts = accounts.map(a =>
             `<option value="${a.id}">${escapeHtml(a.account_number)} - ${escapeHtml(a.name)}</option>`
         ).join('');
@@ -53,6 +55,9 @@ const CCChargesPage = {
         openModal('Enter Credit Card Charge', `
             <form onsubmit="CCChargesPage.save(event)">
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="cc-class-select" required>${classOptions(classes)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); CCChargesPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Date *</label>
                         <input name="date" type="date" required value="${todayISO()}"></div>
                     <div class="form-group"><label>Payee</label>
@@ -77,6 +82,15 @@ const CCChargesPage = {
                     <button type="submit" class="btn btn-primary">Save Charge</button>
                 </div>
             </form>`);
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            CCChargesPage._classes = fresh;
+            const sel = $('#cc-class-select');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
     },
 
     async currencyChanged() {
@@ -108,6 +122,7 @@ const CCChargesPage = {
     async save(e) {
         e.preventDefault();
         const form = e.target;
+        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
         try {
             await API.post('/cc-charges', {
                 date: form.date.value,
@@ -118,6 +133,7 @@ const CCChargesPage = {
                 memo: form.memo.value || null,
                 currency: (form.currency.value || 'USD').toUpperCase(),
                 exchange_rate: parseFloat(form.exchange_rate.value) || 1,
+                class_id: parseInt(form.class_id.value),
             });
             toast('Credit card charge recorded');
             closeModal();

@@ -29,6 +29,7 @@ class PaymentCreate(BaseModel):
     notes: Optional[str] = None
     currency: str = "USD"
     exchange_rate: Decimal = Decimal("1")
+    class_id: Optional[int] = None
     allocations: list[PaymentAllocationCreate] = []
 
 
@@ -45,6 +46,7 @@ class PaymentResponse(BaseModel):
     currency: str = "USD"
     exchange_rate: Decimal = Decimal("1")
     home_currency_amount: Decimal = Decimal("0")
+    class_id: int
     allocations: list[PaymentAllocationResponse] = []
     customer_name: Optional[str] = None
     is_voided: bool = False

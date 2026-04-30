@@ -48,6 +48,8 @@ from app.routes import journal, deposits, cc_charges, checks
 from app.routes import bank_rules, budgets, attachments, email_templates
 # Phase 11: Multi-currency (invoices)
 from app.routes import fx
+# Phase 12: Classes
+from app.routes import classes as classes_route
 
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
@@ -116,6 +118,8 @@ app.include_router(attachments.router)
 app.include_router(email_templates.router)
 # Phase 11: Multi-currency (invoices)
 app.include_router(fx.router)
+# Phase 12: Classes
+app.include_router(classes_route.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)

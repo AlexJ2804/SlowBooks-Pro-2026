@@ -35,6 +35,10 @@ class Transaction(Base):
     currency = Column(String(3), default="USD", nullable=False)
     exchange_rate = Column(Numeric(18, 8), default=1, nullable=False)
 
+    # Phase 3 classes: required for every transaction (system-generated ones
+    # default to the "Uncategorized" class so the system never deadlocks).
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False, index=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     lines = relationship("TransactionLine", back_populates="transaction", cascade="all, delete-orphan")

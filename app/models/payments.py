@@ -34,6 +34,7 @@ class Payment(Base):
     currency = Column(String(3), default="USD", nullable=False)
     exchange_rate = Column(Numeric(18, 8), default=1, nullable=False)
     home_currency_amount = Column(Numeric(12, 2), default=0, nullable=False)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False, index=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -20,6 +20,7 @@ from app.services.accounting import (
     create_journal_entry, get_ar_account_id, get_undeposited_funds_id,
 )
 from app.services.closing_date import check_closing_date
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
@@ -53,6 +54,7 @@ def get_payment(payment_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=PaymentResponse, status_code=201)
 def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
     check_closing_date(db, data.date)
+    class_id = require_class_id(db, data.class_id)
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -97,6 +99,7 @@ def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
         currency=currency,
         exchange_rate=exchange_rate,
         home_currency_amount=home_currency_amount,
+        class_id=class_id,
     )
     db.add(payment)
     db.flush()
@@ -152,6 +155,7 @@ def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
             journal_lines, source_type="payment", source_id=payment.id,
             reference=data.reference or data.check_number or "",
             currency=currency, exchange_rate=exchange_rate,
+            class_id=class_id,
         )
         payment.transaction_id = txn.id
 
@@ -190,6 +194,8 @@ def void_payment(payment_id: int, db: Session = Depends(get_db)):
                 db, payment.date,
                 f"VOID Payment from {cname}",
                 reverse_lines, source_type="payment_void", source_id=payment.id,
+                currency=payment.currency, exchange_rate=payment.exchange_rate,
+                class_id=payment.class_id,
             )
 
     # Reverse invoice allocations

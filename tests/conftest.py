@@ -29,6 +29,7 @@ from app.models import (  # noqa: F401
     bank_rules,
     bills,
     budgets,
+    classes,
     companies,
     contacts,
     credit_memos,
@@ -91,6 +92,33 @@ def seed_accounts(db_session):
         accounts_by_number[data["account_number"]] = acct
     db_session.commit()
     return accounts_by_number
+
+
+@pytest.fixture
+def seed_classes(db_session):
+    """Seed the system Uncategorized class plus a few sample classes.
+
+    Returns a name->Class map. Tests that POST transactions need this fixture
+    so they can pass a real class_id (class_id is NOT NULL on every
+    transaction-bearing table as of phase 3).
+    """
+    from app.models.classes import Class
+    out = {}
+    for name, is_default in [
+        ("Uncategorized", True),
+        ("Class A", False),
+        ("Class B", False),
+    ]:
+        c = Class(name=name, is_system_default=is_default, is_archived=False)
+        db_session.add(c)
+        out[name] = c
+    db_session.commit()
+    return out
+
+
+@pytest.fixture
+def uncategorized_class(seed_classes):
+    return seed_classes["Uncategorized"]
 
 
 @pytest.fixture

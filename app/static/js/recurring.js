@@ -42,13 +42,15 @@ const RecurringPage = {
     lineCount: 0,
 
     async showForm(id = null) {
-        const [customers, items, settings] = await Promise.all([
+        const [customers, items, settings, classes] = await Promise.all([
             API.get('/customers?active_only=true'),
             API.get('/items?active_only=true'),
             API.get('/settings'),
+            API.get('/classes'),
         ]);
         RecurringPage._items = items;
         RecurringPage._customers = customers;
+        RecurringPage._classes = classes;
 
         let rec = {
             customer_id: '',
@@ -58,6 +60,7 @@ const RecurringPage = {
             terms: settings.default_terms || 'Net 30',
             tax_rate: (parseFloat(settings.default_tax_rate || '0') || 0) / 100,
             notes: '',
+            class_id: '',
             lines: [],
         };
         if (id) rec = await API.get(`/recurring/${id}`);
@@ -70,6 +73,9 @@ const RecurringPage = {
         openModal(id ? 'Edit Recurring Invoice' : 'New Recurring Invoice', `
             <form onsubmit="RecurringPage.save(event, ${id})">
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="rec-class-select" required>${classOptions(classes, rec.class_id)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); RecurringPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" required onchange="RecurringPage.customerSelected(this.value)"><option value="">Select...</option>${custOpts}</select></div>
                     <div class="form-group"><label>Frequency *</label>
@@ -148,6 +154,7 @@ const RecurringPage = {
                 line_order: i,
             });
         });
+        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
         const data = {
             customer_id: parseInt(form.customer_id.value),
             frequency: form.frequency.value,
@@ -156,6 +163,7 @@ const RecurringPage = {
             terms: form.terms.value,
             tax_rate: (parseFloat(form.tax_rate.value) || 0) / 100,
             notes: form.notes.value || null,
+            class_id: parseInt(form.class_id.value),
             lines,
         };
         try {
@@ -164,6 +172,15 @@ const RecurringPage = {
             closeModal();
             App.navigate('#/recurring');
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            RecurringPage._classes = fresh;
+            const sel = $('#rec-class-select');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
     },
 
     async del(id) {

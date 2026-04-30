@@ -5,12 +5,13 @@ All tests here should FAIL against the pre-fix code and PASS after the fix.
 from decimal import Decimal
 
 
-def _create_invoice(client, customer_id, amount="100.00", tax_rate="0", qty="1"):
+def _create_invoice(client, customer_id, class_id, amount="100.00", tax_rate="0", qty="1"):
     body = {
         "customer_id": customer_id,
         "date": "2026-04-01",
         "terms": "Net 30",
         "tax_rate": tax_rate,
+        "class_id": class_id,
         "lines": [
             {"description": "Service", "quantity": qty, "rate": amount, "line_order": 0}
         ],
@@ -30,14 +31,16 @@ def _sum_debits_credits(db_session, txn_id):
 
 
 def test_editing_invoice_total_below_amount_paid_clamps_balance_due_at_zero(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00")
+    cid = seed_classes["Class A"].id
+    inv = _create_invoice(client, seed_customer.id, cid, amount="100.00")
 
     client.post("/api/payments", json={
         "customer_id": seed_customer.id,
         "date": "2026-04-02",
         "amount": "60.00",
+        "class_id": cid,
         "allocations": [{"invoice_id": inv["id"], "amount": "60.00"}],
     })
 
@@ -59,9 +62,9 @@ def test_editing_invoice_total_below_amount_paid_clamps_balance_due_at_zero(
 
 
 def test_editing_only_tax_rate_recomputes_totals(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00", tax_rate="0")
+    inv = _create_invoice(client, seed_customer.id, seed_classes["Class A"].id, amount="100.00", tax_rate="0")
 
     r = client.put(f"/api/invoices/{inv['id']}", json={"tax_rate": "0.10"})
     assert r.status_code == 200, r.text
@@ -80,9 +83,9 @@ def test_editing_only_tax_rate_recomputes_totals(
 
 
 def test_editing_lines_keeps_journal_balanced(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00")
+    inv = _create_invoice(client, seed_customer.id, seed_classes["Class A"].id, amount="100.00")
 
     r = client.put(f"/api/invoices/{inv['id']}", json={
         "lines": [
@@ -107,9 +110,9 @@ def test_editing_lines_keeps_journal_balanced(
 
 
 def test_editing_only_tax_rate_keeps_journal_balanced(
-    client, db_session, seed_accounts, seed_customer
+    client, db_session, seed_accounts, seed_customer, seed_classes
 ):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00", tax_rate="0")
+    inv = _create_invoice(client, seed_customer.id, seed_classes["Class A"].id, amount="100.00", tax_rate="0")
 
     r = client.put(f"/api/invoices/{inv['id']}", json={"tax_rate": "0.10"})
     assert r.status_code == 200, r.text

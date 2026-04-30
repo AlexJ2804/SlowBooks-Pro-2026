@@ -21,8 +21,9 @@ const API = {
         }
         return res.json();
     },
-    get(path)       { return this.request('GET', path); },
+    get(path)        { return this.request('GET', path); },
     post(path, data) { return this.request('POST', path, data); },
     put(path, data)  { return this.request('PUT', path, data); },
-    del(path)       { return this.request('DELETE', path); },
+    patch(path, data) { return this.request('PATCH', path, data); },
+    del(path)        { return this.request('DELETE', path); },
 };

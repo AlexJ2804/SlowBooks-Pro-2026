@@ -6,12 +6,13 @@ balanced journal entries and keeps Invoice.balance_due consistent.
 from decimal import Decimal
 
 
-def _create_invoice(client, customer_id, amount="100.00", tax_rate="0", qty="1"):
+def _create_invoice(client, customer_id, class_id, amount="100.00", tax_rate="0", qty="1"):
     body = {
         "customer_id": customer_id,
         "date": "2026-04-01",
         "terms": "Net 30",
         "tax_rate": tax_rate,
+        "class_id": class_id,
         "lines": [
             {"description": "Consulting", "quantity": qty, "rate": amount, "line_order": 0}
         ],
@@ -30,8 +31,8 @@ def _sum_debits_credits(db_session, txn_id):
     )
 
 
-def test_create_invoice_produces_balanced_journal(client, db_session, seed_accounts, seed_customer):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00")
+def test_create_invoice_produces_balanced_journal(client, db_session, seed_accounts, seed_customer, seed_classes):
+    inv = _create_invoice(client, seed_customer.id, seed_classes["Class A"].id, amount="100.00")
 
     from app.models.invoices import Invoice
     invoice = db_session.query(Invoice).filter_by(id=inv["id"]).first()
@@ -44,8 +45,8 @@ def test_create_invoice_produces_balanced_journal(client, db_session, seed_accou
     assert dr == cr == Decimal("100.00")
 
 
-def test_create_invoice_with_tax_balances(client, db_session, seed_accounts, seed_customer):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00", tax_rate="0.0875")
+def test_create_invoice_with_tax_balances(client, db_session, seed_accounts, seed_customer, seed_classes):
+    inv = _create_invoice(client, seed_customer.id, seed_classes["Class A"].id, amount="100.00", tax_rate="0.0875")
 
     from app.models.invoices import Invoice
     invoice = db_session.query(Invoice).filter_by(id=inv["id"]).first()
@@ -57,13 +58,15 @@ def test_create_invoice_with_tax_balances(client, db_session, seed_accounts, see
     assert dr == cr == Decimal("108.75")
 
 
-def test_pay_invoice_full_marks_paid_and_reverses_ar(client, db_session, seed_accounts, seed_customer):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00")
+def test_pay_invoice_full_marks_paid_and_reverses_ar(client, db_session, seed_accounts, seed_customer, seed_classes):
+    cid = seed_classes["Class A"].id
+    inv = _create_invoice(client, seed_customer.id, cid, amount="100.00")
 
     r = client.post("/api/payments", json={
         "customer_id": seed_customer.id,
         "date": "2026-04-02",
         "amount": "100.00",
+        "class_id": cid,
         "allocations": [{"invoice_id": inv["id"], "amount": "100.00"}],
     })
     assert r.status_code == 201, r.text
@@ -82,13 +85,15 @@ def test_pay_invoice_full_marks_paid_and_reverses_ar(client, db_session, seed_ac
     assert dr == cr == Decimal("100.00")
 
 
-def test_pay_invoice_partial_marks_partial(client, db_session, seed_accounts, seed_customer):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00")
+def test_pay_invoice_partial_marks_partial(client, db_session, seed_accounts, seed_customer, seed_classes):
+    cid = seed_classes["Class A"].id
+    inv = _create_invoice(client, seed_customer.id, cid, amount="100.00")
 
     client.post("/api/payments", json={
         "customer_id": seed_customer.id,
         "date": "2026-04-02",
         "amount": "30.00",
+        "class_id": cid,
         "allocations": [{"invoice_id": inv["id"], "amount": "30.00"}],
     })
     from app.models.invoices import Invoice, InvoiceStatus
@@ -99,12 +104,14 @@ def test_pay_invoice_partial_marks_partial(client, db_session, seed_accounts, se
     assert invoice.status == InvoiceStatus.PARTIAL
 
 
-def test_void_payment_reverses_allocation(client, db_session, seed_accounts, seed_customer):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00")
+def test_void_payment_reverses_allocation(client, db_session, seed_accounts, seed_customer, seed_classes):
+    cid = seed_classes["Class A"].id
+    inv = _create_invoice(client, seed_customer.id, cid, amount="100.00")
     r = client.post("/api/payments", json={
         "customer_id": seed_customer.id,
         "date": "2026-04-02",
         "amount": "100.00",
+        "class_id": cid,
         "allocations": [{"invoice_id": inv["id"], "amount": "100.00"}],
     })
     payment_id = r.json()["id"]
@@ -120,8 +127,8 @@ def test_void_payment_reverses_allocation(client, db_session, seed_accounts, see
     assert invoice.status == InvoiceStatus.SENT
 
 
-def test_void_invoice_creates_reversing_entry(client, db_session, seed_accounts, seed_customer):
-    inv = _create_invoice(client, seed_customer.id, amount="100.00")
+def test_void_invoice_creates_reversing_entry(client, db_session, seed_accounts, seed_customer, seed_classes):
+    inv = _create_invoice(client, seed_customer.id, seed_classes["Class A"].id, amount="100.00")
 
     r = client.post(f"/api/invoices/{inv['id']}/void")
     assert r.status_code == 200, r.text

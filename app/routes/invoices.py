@@ -32,7 +32,9 @@ from app.services.accounting import (
     create_journal_entry, get_ar_account_id,
     get_default_income_account_id, get_sales_tax_account_id,
     compute_line_totals, due_date_from_terms,
+    uncategorized_class_id,
 )
+from app.routes._helpers import require_class_id
 from app.routes.settings import _get_all as get_settings
 from app.services.closing_date import check_closing_date
 
@@ -147,6 +149,7 @@ def get_invoice(invoice_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=InvoiceResponse, status_code=201)
 def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
     check_closing_date(db, data.date)
+    class_id = require_class_id(db, data.class_id)
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -193,6 +196,7 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
         currency=currency,
         exchange_rate=exchange_rate,
         home_currency_amount=home_currency_amount,
+        class_id=class_id,
         notes=data.notes,
     )
     db.add(invoice)
@@ -260,6 +264,7 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
             journal_lines, source_type="invoice", source_id=invoice.id,
             reference=invoice_number,
             currency=currency, exchange_rate=exchange_rate,
+            class_id=class_id,
         )
         invoice.transaction_id = txn.id
 
@@ -284,6 +289,10 @@ def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(g
     fx_changed = "currency" in update_data or "exchange_rate" in update_data
     if "currency" in update_data and update_data["currency"]:
         update_data["currency"] = update_data["currency"].upper()
+    if "class_id" in update_data:
+        # Re-validate when an explicit class_id is sent. None on update would
+        # be a "clear class" attempt — that's not allowed (class is required).
+        update_data["class_id"] = require_class_id(db, update_data["class_id"])
     for key, val in update_data.items():
         setattr(invoice, key, val)
 
@@ -342,6 +351,7 @@ def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(g
                     txn.description = f"Invoice #{invoice.invoice_number} - {invoice.customer.name if invoice.customer else ''}"
                     txn.currency = (invoice.currency or "USD").upper()
                     txn.exchange_rate = rate
+                    txn.class_id = invoice.class_id
                 for jl in new_journal_lines:
                     debit = Decimal(str(jl.get("debit", 0)))
                     credit = Decimal(str(jl.get("credit", 0)))
@@ -449,6 +459,7 @@ def void_invoice(invoice_id: int, db: Session = Depends(get_db)):
                 reverse_lines, source_type="invoice_void", source_id=invoice.id,
                 reference=invoice.invoice_number,
                 currency=invoice.currency, exchange_rate=invoice.exchange_rate,
+                class_id=invoice.class_id,
             )
 
     invoice.status = InvoiceStatus.VOID
@@ -594,6 +605,7 @@ def apply_late_fees(db: Session = Depends(get_db)):
             db, today, f"Late fee - Invoice #{inv.invoice_number}",
             journal_lines, source_type="late_fee", source_id=inv.id,
             currency=inv.currency, exchange_rate=inv.exchange_rate,
+            class_id=inv.class_id,
         )
 
         # Update invoice totals (add to subtotal too so total == subtotal + tax_amount)
@@ -657,6 +669,7 @@ def duplicate_invoice(invoice_id: int, db: Session = Depends(get_db)):
         home_currency_amount=(
             Decimal(str(original.total)) * Decimal(str(original.exchange_rate))
         ).quantize(Decimal("0.01")),
+        class_id=original.class_id,
         notes=original.notes,
     )
     db.add(new_invoice)
@@ -720,6 +733,7 @@ def duplicate_invoice(invoice_id: int, db: Session = Depends(get_db)):
             journal_lines, source_type="invoice", source_id=new_invoice.id,
             reference=new_number,
             currency=new_invoice.currency, exchange_rate=new_invoice.exchange_rate,
+            class_id=new_invoice.class_id,
         )
         new_invoice.transaction_id = txn.id
 

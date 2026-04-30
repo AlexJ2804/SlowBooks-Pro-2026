@@ -51,7 +51,7 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 _DEBIT_NORMAL = {AccountType.ASSET, AccountType.EXPENSE, AccountType.COGS}
 
 
-def _totals_by_account(db, acct_type, date_start=None, date_end=None):
+def _totals_by_account(db, acct_type, date_start=None, date_end=None, class_id=None):
     """Return a list of {account_name, account_number, amount} rows where amount
     is signed by the account type's natural balance (always positive for a
     normal-balance ledger).
@@ -60,6 +60,8 @@ def _totals_by_account(db, acct_type, date_start=None, date_end=None):
     regardless of source-document currency. Each TransactionLine carries both
     native (debit/credit) and home-currency (home_currency_debit/credit)
     amounts; native columns remain available for any native-currency view.
+
+    Optional `class_id` filter restricts to transactions tagged with that class.
     """
     q = (
         db.query(
@@ -75,6 +77,8 @@ def _totals_by_account(db, acct_type, date_start=None, date_end=None):
         q = q.filter(Transaction.date >= date_start)
     if date_end is not None:
         q = q.filter(Transaction.date <= date_end)
+    if class_id is not None:
+        q = q.filter(Transaction.class_id == class_id)
     q = q.group_by(Account.id, Account.name, Account.account_number)
 
     rows = []
@@ -88,20 +92,65 @@ def _totals_by_account(db, acct_type, date_start=None, date_end=None):
     return rows
 
 
+def _totals_by_account_and_class(db, acct_type, date_start=None, date_end=None):
+    """Like _totals_by_account but also groups by Transaction.class_id.
+
+    Returns a list of {account_name, account_number, by_class: {class_id: amount},
+    total: amount}. Used by the column-per-class P&L breakdown.
+    """
+    q = (
+        db.query(
+            Account.id, Account.name, Account.account_number,
+            Transaction.class_id,
+            sqlfunc.coalesce(sqlfunc.sum(TransactionLine.home_currency_debit), 0),
+            sqlfunc.coalesce(sqlfunc.sum(TransactionLine.home_currency_credit), 0),
+        )
+        .join(TransactionLine, TransactionLine.account_id == Account.id)
+        .join(Transaction, TransactionLine.transaction_id == Transaction.id)
+        .filter(Account.account_type == acct_type)
+    )
+    if date_start is not None:
+        q = q.filter(Transaction.date >= date_start)
+    if date_end is not None:
+        q = q.filter(Transaction.date <= date_end)
+    q = q.group_by(Account.id, Account.name, Account.account_number, Transaction.class_id)
+
+    by_account = {}
+    for acct_id, name, number, class_id, dr, cr in q.all():
+        amount = (dr - cr) if acct_type in _DEBIT_NORMAL else (cr - dr)
+        if acct_id not in by_account:
+            by_account[acct_id] = {
+                "account_name": name,
+                "account_number": number,
+                "by_class": {},
+                "total": 0.0,
+            }
+        by_account[acct_id]["by_class"][class_id] = float(amount)
+        by_account[acct_id]["total"] += float(amount)
+    return list(by_account.values())
+
+
 @router.get("/profit-loss")
 def profit_loss(
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
+    class_id: int = Query(default=None),
     db: Session = Depends(get_db),
 ):
+    """Profit & Loss in the home currency.
+
+    Optional `class_id` restricts the report to a single class. When omitted,
+    the response also includes a column-per-class breakdown (`by_class_*`)
+    plus the list of `classes` so the frontend can render the wide table.
+    """
     if not start_date:
         start_date = date(date.today().year, 1, 1)
     if not end_date:
         end_date = date.today()
 
-    income = _totals_by_account(db, AccountType.INCOME, start_date, end_date)
-    cogs = _totals_by_account(db, AccountType.COGS, start_date, end_date)
-    expenses = _totals_by_account(db, AccountType.EXPENSE, start_date, end_date)
+    income = _totals_by_account(db, AccountType.INCOME, start_date, end_date, class_id)
+    cogs = _totals_by_account(db, AccountType.COGS, start_date, end_date, class_id)
+    expenses = _totals_by_account(db, AccountType.EXPENSE, start_date, end_date, class_id)
 
     total_income = sum(i["amount"] for i in income)
     total_cogs = sum(c["amount"] for c in cogs)
@@ -109,10 +158,11 @@ def profit_loss(
 
     home_currency = (get_settings(db).get("home_currency") or "USD").upper()
 
-    return {
+    payload = {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "home_currency": home_currency,
+        "class_id": class_id,
         "income": income,
         "cogs": cogs,
         "expenses": expenses,
@@ -122,6 +172,30 @@ def profit_loss(
         "total_expenses": total_expenses,
         "net_income": total_income - total_cogs - total_expenses,
     }
+
+    # When the user hasn't filtered to a single class, attach the column-per-
+    # class breakdown so the frontend can render the wide table (8b). The
+    # `classes` list defines column order.
+    if class_id is None:
+        from app.models.classes import Class
+        classes = db.query(Class).order_by(
+            Class.is_system_default.desc(), Class.name
+        ).all()
+        payload["classes"] = [
+            {"id": c.id, "name": c.name, "is_archived": c.is_archived}
+            for c in classes
+        ]
+        payload["by_class_income"] = _totals_by_account_and_class(
+            db, AccountType.INCOME, start_date, end_date
+        )
+        payload["by_class_cogs"] = _totals_by_account_and_class(
+            db, AccountType.COGS, start_date, end_date
+        )
+        payload["by_class_expenses"] = _totals_by_account_and_class(
+            db, AccountType.EXPENSE, start_date, end_date
+        )
+
+    return payload
 
 
 @router.get("/balance-sheet")
@@ -297,10 +371,14 @@ def pay_sales_tax(data: SalesTaxPaymentRequest, db: Session = Depends(get_db)):
 
     reference = data.reference if data.reference is not None else data.check_number
 
+    # Sales-tax payments are system bookkeeping; class is set explicitly to
+    # Uncategorized so the categorization decision shows up in code.
+    from app.services.accounting import uncategorized_class_id
     txn = create_journal_entry(
         db, pay_date, "Sales Tax Payment",
         journal_lines, source_type="sales_tax_payment",
         reference=reference,
+        class_id=uncategorized_class_id(db),
     )
     db.commit()
     return {"status": "ok", "transaction_id": txn.id, "amount": float(data.amount)}

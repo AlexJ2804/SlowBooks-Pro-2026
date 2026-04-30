@@ -4,11 +4,13 @@
  */
 const DepositsPage = {
     async render() {
-        const [pending, accounts] = await Promise.all([
+        const [pending, accounts, classes] = await Promise.all([
             API.get('/deposits/pending'),
             API.get('/accounts'),
+            API.get('/classes'),
         ]);
 
+        DepositsPage._classes = classes;
         const bankAccts = accounts.filter(a => a.account_type === 'asset');
         const bankOpts = bankAccts.map(a => `<option value="${a.id}">${escapeHtml(a.name)} (${formatCurrency(a.balance)})</option>`).join('');
 
@@ -20,6 +22,9 @@ const DepositsPage = {
                 </div>
             </div>
             <div class="toolbar">
+                <label style="font-size:10px;font-weight:700;">Class *:</label>
+                <select id="deposit-class">${classOptions(classes)}</select>
+                <a href="#" style="font-size:10px;" onclick="event.preventDefault(); DepositsPage.newClass()">+ New</a>
                 <label style="font-size:10px;font-weight:700;">Deposit To:</label>
                 <select id="deposit-bank-acct">${bankOpts.length ? bankOpts : '<option>No bank accounts</option>'}</select>
                 <label style="font-size:10px;font-weight:700;">Date:</label>
@@ -90,6 +95,8 @@ const DepositsPage = {
 
         const bankAcctId = $('#deposit-bank-acct')?.value;
         if (!bankAcctId) { toast('Select a bank account', 'error'); return; }
+        const classId = $('#deposit-class')?.value;
+        if (!classId) { toast('Pick a class before saving.', 'error'); return; }
 
         try {
             await API.post('/deposits', {
@@ -97,10 +104,20 @@ const DepositsPage = {
                 date: $('#deposit-date').value,
                 total: total,
                 reference: $('#deposit-ref')?.value || null,
+                class_id: parseInt(classId),
                 line_ids: lineIds,
             });
             toast(`Deposited ${formatCurrency(total)}`);
             App.navigate('#/deposits');
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            DepositsPage._classes = fresh;
+            const sel = $('#deposit-class');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
     },
 };

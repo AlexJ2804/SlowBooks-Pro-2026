@@ -8,7 +8,7 @@
 const SettingsPage = {
     async render() {
         const s = await API.get('/settings');
-        setTimeout(() => { SettingsPage.loadBackups(); SettingsPage.loadEmailTemplates(); }, 0);
+        setTimeout(() => { SettingsPage.loadBackups(); SettingsPage.loadEmailTemplates(); SettingsPage.loadClasses(); }, 0);
         return `
             <div class="page-header">
                 <h2>Company Settings</h2>
@@ -77,6 +77,22 @@ const SettingsPage = {
                         <div class="form-group full-width"><label>Invoice Footer</label>
                             <input name="invoice_footer" value="${escapeHtml(s.invoice_footer || '')}"></div>
                     </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Classes</h3>
+                    <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
+                        Tag every transaction with a class so reports can slice by Alex W-2,
+                        Wife 1099, Ireland Projects, etc. Archived classes stay attached to
+                        their existing transactions but are hidden from new-transaction dropdowns.
+                        The "Uncategorized" class is the system default for auto-generated
+                        entries (Stripe webhooks, payroll, late fees) and cannot be renamed
+                        or archived.
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="SettingsPage.newClass()">+ New Class</button>
+                    </div>
+                    <div id="settings-classes-list"></div>
                 </div>
 
                 <div class="settings-section">
@@ -364,6 +380,62 @@ const SettingsPage = {
             toast('Template saved');
             closeModal();
             SettingsPage.loadEmailTemplates();
+        } catch (err) { toast(err.message, 'error'); }
+    },
+
+    async loadClasses() {
+        try {
+            const classes = await API.get('/classes?include_archived=true');
+            const el = $('#settings-classes-list');
+            if (!el) return;
+            if (classes.length === 0) {
+                el.innerHTML = '<div style="font-size:11px; color:var(--text-muted);">No classes.</div>';
+                return;
+            }
+            el.innerHTML = `<div class="table-container"><table>
+                <thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>${classes.map(c => {
+                    const locked = c.is_system_default;
+                    const archivedBadge = c.is_archived
+                        ? '<span style="font-size:10px; padding:1px 6px; background:var(--gray-200); border-radius:4px;">archived</span>'
+                        : '';
+                    const sysBadge = locked
+                        ? '<span style="font-size:10px; padding:1px 6px; background:var(--primary-light); color:var(--qb-blue); border-radius:4px;">system</span>'
+                        : '';
+                    return `<tr>
+                        <td><strong>${escapeHtml(c.name)}</strong> ${sysBadge} ${archivedBadge}</td>
+                        <td>${c.is_archived ? 'Archived' : 'Active'}</td>
+                        <td class="actions">
+                            <button class="btn btn-sm btn-secondary" ${locked ? 'disabled title="System default — cannot be renamed"' : `onclick="SettingsPage.renameClass(${c.id}, '${escapeHtml(c.name).replace(/'/g, "\\'")}')"`}>Rename</button>
+                            <button class="btn btn-sm btn-secondary" ${locked ? 'disabled title="System default — cannot be archived"' : `onclick="SettingsPage.toggleArchiveClass(${c.id}, ${!c.is_archived})"`}>${c.is_archived ? 'Unarchive' : 'Archive'}</button>
+                        </td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table></div>`;
+        } catch (e) { /* ignore */ }
+    },
+
+    newClass() {
+        InlineCreate.open('class', () => {
+            SettingsPage.loadClasses();
+        });
+    },
+
+    async renameClass(classId, currentName) {
+        const name = prompt('New name:', currentName);
+        if (!name || name.trim() === currentName) return;
+        try {
+            await API.patch(`/classes/${classId}`, { name: name.trim() });
+            toast('Class renamed');
+            SettingsPage.loadClasses();
+        } catch (err) { toast(err.message, 'error'); }
+    },
+
+    async toggleArchiveClass(classId, archive) {
+        try {
+            await API.patch(`/classes/${classId}`, { is_archived: archive });
+            toast(archive ? 'Class archived' : 'Class unarchived');
+            SettingsPage.loadClasses();
         } catch (err) { toast(err.message, 'error'); }
     },
 };

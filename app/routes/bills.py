@@ -17,6 +17,7 @@ from app.models.accounts import Account
 from app.schemas.bills import BillCreate, BillUpdate, BillResponse
 from app.services.accounting import create_journal_entry, compute_line_totals
 from app.services.closing_date import check_closing_date
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/bills", tags=["bills"])
 
@@ -57,6 +58,7 @@ def get_bill(bill_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=BillResponse, status_code=201)
 def create_bill(data: BillCreate, db: Session = Depends(get_db)):
     check_closing_date(db, data.date)
+    class_id = require_class_id(db, data.class_id)
 
     vendor = db.query(Vendor).filter(Vendor.id == data.vendor_id).first()
     if not vendor:
@@ -83,6 +85,7 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db)):
         total=total, balance_due=total, notes=data.notes,
         currency=currency, exchange_rate=exchange_rate,
         home_currency_amount=home_currency_amount,
+        class_id=class_id,
     )
     db.add(bill)
     db.flush()
@@ -139,6 +142,7 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db)):
             db, data.date, f"Bill {data.bill_number} - {vendor.name}",
             journal_lines, source_type="bill", source_id=bill.id,
             currency=currency, exchange_rate=exchange_rate,
+            class_id=class_id,
         )
         bill.transaction_id = txn.id
 
@@ -172,6 +176,7 @@ def void_bill(bill_id: int, db: Session = Depends(get_db)):
                 db, bill.date, f"VOID Bill {bill.bill_number}",
                 reverse_lines, source_type="bill_void", source_id=bill.id,
                 currency=bill.currency, exchange_rate=bill.exchange_rate,
+                class_id=bill.class_id,
             )
 
     bill.status = BillStatus.VOID

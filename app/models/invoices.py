@@ -68,6 +68,7 @@ class Invoice(Base):
 
     notes = Column(Text, nullable=True)
     transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=True)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False, index=True)
 
     # Stripe online payments
     payment_token = Column(String(36), unique=True, nullable=True, index=True,
