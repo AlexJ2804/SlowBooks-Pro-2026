@@ -80,6 +80,21 @@ const SettingsPage = {
                 </div>
 
                 <div class="settings-section">
+                    <h3>Multi-Currency</h3>
+                    <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
+                        Home currency is used for the YTD total and the home-currency
+                        column on the invoices list. Changing this does not retroactively
+                        recalculate existing invoices.
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Home Currency</label>
+                            <select name="home_currency">
+                                ${currencyOptions((s.home_currency || 'USD').toUpperCase())}
+                            </select></div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
                     <h3>Closing Date</h3>
                     <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
                         Prevent modifications to transactions before this date.

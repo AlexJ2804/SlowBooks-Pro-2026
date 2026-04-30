@@ -87,8 +87,8 @@
             <tr>
                 <td>{{ line.description or '' }}</td>
                 <td class="r">{{ line.quantity }}</td>
-                <td class="r">{{ line.rate | currency }}</td>
-                <td class="r">{{ line.amount | currency }}</td>
+                <td class="r">{{ line.rate | currency(inv.currency) }}</td>
+                <td class="r">{{ line.amount | currency(inv.currency) }}</td>
             </tr>
         {% endfor %}
         </tbody>
@@ -96,14 +96,14 @@
 
     <div class="totals">
         <table>
-            <tr><td class="label">Subtotal</td><td class="r">{{ inv.subtotal | currency }}</td></tr>
+            <tr><td class="label">Subtotal</td><td class="r">{{ inv.subtotal | currency(inv.currency) }}</td></tr>
             {% if inv.tax_amount and inv.tax_amount != 0 %}
-            <tr><td class="label">Tax ({{ "%.2f" | format(inv.tax_rate * 100) }}%)</td><td class="r">{{ inv.tax_amount | currency }}</td></tr>
+            <tr><td class="label">Tax ({{ "%.2f" | format(inv.tax_rate * 100) }}%)</td><td class="r">{{ inv.tax_amount | currency(inv.currency) }}</td></tr>
             {% endif %}
-            <tr><td class="label grand">Total</td><td class="r grand">{{ inv.total | currency }}</td></tr>
+            <tr><td class="label grand">Total</td><td class="r grand">{{ inv.total | currency(inv.currency) }}</td></tr>
             {% if inv.amount_paid and inv.amount_paid != 0 %}
-            <tr><td class="label">Paid</td><td class="r">{{ inv.amount_paid | currency }}</td></tr>
-            <tr><td class="label grand">Balance Due</td><td class="r grand">{{ inv.balance_due | currency }}</td></tr>
+            <tr><td class="label">Paid</td><td class="r">{{ inv.amount_paid | currency(inv.currency) }}</td></tr>
+            <tr><td class="label grand">Balance Due</td><td class="r grand">{{ inv.balance_due | currency(inv.currency) }}</td></tr>
             {% endif %}
         </table>
     </div>

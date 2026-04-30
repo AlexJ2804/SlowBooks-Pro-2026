@@ -9,8 +9,11 @@
 function $(sel, parent = document) { return parent.querySelector(sel); }
 function $$(sel, parent = document) { return [...parent.querySelectorAll(sel)]; }
 
-function formatCurrency(amount) {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
+function formatCurrency(amount, currencyCode) {
+    const code = (currencyCode || 'USD').toUpperCase();
+    // en-US locale keeps the existing $ presentation for USD; for CAD/EUR
+    // Intl produces "CA$" and "€" respectively, which is what we want.
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).format(amount || 0);
 }
 
 function formatDate(dateStr) {
@@ -139,5 +142,17 @@ const COUNTRIES = [
 function countryOptions(selected) {
     return COUNTRIES.map(c =>
         `<option value="${c.code}"${c.disabled ? ' disabled' : ''}${c.code === selected ? ' selected' : ''}>${c.name}</option>`
+    ).join('');
+}
+
+const CURRENCIES = [
+    { code: 'USD', name: 'US Dollar' },
+    { code: 'CAD', name: 'Canadian Dollar' },
+    { code: 'EUR', name: 'Euro' },
+];
+
+function currencyOptions(selected) {
+    return CURRENCIES.map(c =>
+        `<option value="${c.code}"${c.code === selected ? ' selected' : ''}>${c.code} — ${c.name}</option>`
     ).join('');
 }

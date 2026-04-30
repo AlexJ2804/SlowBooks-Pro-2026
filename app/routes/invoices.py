@@ -160,6 +160,10 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
 
     subtotal, tax_amount, total = _compute_totals(data.lines, data.tax_rate)
 
+    currency = (data.currency or "USD").upper()
+    exchange_rate = Decimal(str(data.exchange_rate)) if data.exchange_rate is not None else Decimal("1")
+    home_currency_amount = (Decimal(str(total)) * exchange_rate).quantize(Decimal("0.01"))
+
     invoice = Invoice(
         invoice_number=invoice_number,
         customer_id=data.customer_id,
@@ -182,6 +186,9 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
         tax_amount=tax_amount,
         total=total,
         balance_due=total,
+        currency=currency,
+        exchange_rate=exchange_rate,
+        home_currency_amount=home_currency_amount,
         notes=data.notes,
     )
     db.add(invoice)
@@ -269,6 +276,9 @@ def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(g
 
     update_data = data.model_dump(exclude_unset=True, exclude={"lines"})
     tax_rate_changed = "tax_rate" in update_data
+    fx_changed = "currency" in update_data or "exchange_rate" in update_data
+    if "currency" in update_data and update_data["currency"]:
+        update_data["currency"] = update_data["currency"].upper()
     for key, val in update_data.items():
         setattr(invoice, key, val)
 
@@ -339,6 +349,12 @@ def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(g
                             account.balance += debit - credit
                         else:
                             account.balance += credit - debit
+
+    # Recalc home_currency_amount if total or rate changed.
+    if needs_recompute or fx_changed:
+        invoice.home_currency_amount = (
+            Decimal(str(invoice.total)) * Decimal(str(invoice.exchange_rate))
+        ).quantize(Decimal("0.01"))
 
     db.commit()
     db.refresh(invoice)
@@ -568,6 +584,11 @@ def apply_late_fees(db: Session = Depends(get_db)):
         inv.subtotal += fee_amount
         inv.total += fee_amount
         inv.balance_due += fee_amount
+        # Bump home-currency total using the invoice's saved rate; we don't
+        # re-fetch FX here since the late fee is logically part of this invoice.
+        inv.home_currency_amount = (
+            Decimal(str(inv.total)) * Decimal(str(inv.exchange_rate))
+        ).quantize(Decimal("0.01"))
         applied += 1
 
     db.commit()
@@ -615,6 +636,11 @@ def duplicate_invoice(invoice_id: int, db: Session = Depends(get_db)):
         tax_amount=original.tax_amount,
         total=original.total,
         balance_due=original.total,
+        currency=original.currency,
+        exchange_rate=original.exchange_rate,
+        home_currency_amount=(
+            Decimal(str(original.total)) * Decimal(str(original.exchange_rate))
+        ).quantize(Decimal("0.01")),
         notes=original.notes,
     )
     db.add(new_invoice)

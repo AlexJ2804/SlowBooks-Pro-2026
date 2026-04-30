@@ -9,13 +9,24 @@
  */
 const InvoicesPage = {
     async render() {
-        const invoices = await API.get('/invoices');
+        const [invoices, settings] = await Promise.all([
+            API.get('/invoices'),
+            API.get('/settings'),
+        ]);
+        const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
+
+        // YTD total in home currency: include drafts, exclude void only.
+        const yearStart = new Date().getFullYear() + '-01-01';
+        const ytdTotal = invoices
+            .filter(inv => inv.status !== 'void' && inv.date >= yearStart)
+            .reduce((sum, inv) => sum + parseFloat(inv.home_currency_amount || 0), 0);
+
         let html = `
             <div class="page-header">
                 <h2>Invoices</h2>
                 <button class="btn btn-primary" onclick="InvoicesPage.showForm()">+ New Invoice</button>
             </div>
-            <div class="toolbar">
+            <div class="toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
                 <select id="inv-status-filter" onchange="InvoicesPage.applyFilter()">
                     <option value="">All Statuses</option>
                     <option value="draft">Draft</option>
@@ -24,6 +35,10 @@ const InvoicesPage = {
                     <option value="paid">Paid</option>
                     <option value="void">Void</option>
                 </select>
+                <div style="font-size:12px; color:var(--gray-700);">
+                    <strong>YTD in ${escapeHtml(homeCurrency)}:</strong>
+                    ${formatCurrency(ytdTotal, homeCurrency)}
+                </div>
             </div>`;
 
         if (invoices.length === 0) {
@@ -32,17 +47,22 @@ const InvoicesPage = {
             html += `<div class="table-container"><table>
                 <thead><tr>
                     <th>#</th><th>Customer</th><th>Date</th><th>Due Date</th>
-                    <th>Status</th><th class="amount">Total</th><th class="amount">Balance</th><th>Actions</th>
+                    <th>Status</th>
+                    <th class="amount">Total</th>
+                    <th class="amount">Total (${escapeHtml(homeCurrency)})</th>
+                    <th class="amount">Balance</th><th>Actions</th>
                 </tr></thead><tbody id="inv-tbody">`;
             for (const inv of invoices) {
+                const invCcy = (inv.currency || 'USD').toUpperCase();
                 html += `<tr class="inv-row" data-status="${inv.status}">
                     <td><strong>${escapeHtml(inv.invoice_number)}</strong></td>
                     <td>${escapeHtml(inv.customer_name || '')}</td>
                     <td>${formatDate(inv.date)}</td>
                     <td>${formatDate(inv.due_date)}</td>
                     <td>${statusBadge(inv.status)}</td>
-                    <td class="amount">${formatCurrency(inv.total)}</td>
-                    <td class="amount">${formatCurrency(inv.balance_due)}</td>
+                    <td class="amount">${formatCurrency(inv.total, invCcy)}</td>
+                    <td class="amount">${formatCurrency(inv.home_currency_amount, homeCurrency)}</td>
+                    <td class="amount">${formatCurrency(inv.balance_due, invCcy)}</td>
                     <td class="actions">
                         <button class="btn btn-sm btn-secondary" onclick="InvoicesPage.view(${inv.id})">View</button>
                         <button class="btn btn-sm btn-secondary" onclick="InvoicesPage.showForm(${inv.id})">Edit</button>
@@ -62,10 +82,20 @@ const InvoicesPage = {
     },
 
     async view(id) {
-        const inv = await API.get(`/invoices/${id}`);
+        const [inv, settings] = await Promise.all([
+            API.get(`/invoices/${id}`),
+            API.get('/settings'),
+        ]);
+        const invCcy = (inv.currency || 'USD').toUpperCase();
+        const homeCcy = (settings.home_currency || 'USD').toUpperCase();
+        const showHome = invCcy !== homeCcy;
+        const totalLine = showHome
+            ? `${formatCurrency(inv.total, invCcy)} <span style="color:var(--gray-500); font-weight:normal;">(≈ ${formatCurrency(inv.home_currency_amount, homeCcy)})</span>`
+            : formatCurrency(inv.total, invCcy);
+
         let linesHtml = inv.lines.map(l =>
             `<tr><td>${escapeHtml(l.description || '')}</td><td class="amount">${l.quantity}</td>
-             <td class="amount">${formatCurrency(l.rate)}</td><td class="amount">${formatCurrency(l.amount)}</td></tr>`
+             <td class="amount">${formatCurrency(l.rate, invCcy)}</td><td class="amount">${formatCurrency(l.amount, invCcy)}</td></tr>`
         ).join('');
 
         openModal(`Invoice #${inv.invoice_number}`, `
@@ -74,6 +104,7 @@ const InvoicesPage = {
                 <strong>Date:</strong> ${formatDate(inv.date)}<br>
                 <strong>Due:</strong> ${formatDate(inv.due_date)}<br>
                 <strong>Status:</strong> ${statusBadge(inv.status)}<br>
+                <strong>Currency:</strong> ${escapeHtml(invCcy)}${showHome ? ` <span style="color:var(--gray-500);">(rate ${parseFloat(inv.exchange_rate).toFixed(4)} → ${escapeHtml(homeCcy)})</span>` : ''}<br>
                 ${inv.po_number ? `<strong>PO#:</strong> ${escapeHtml(inv.po_number)}<br>` : ''}
             </div>
             <div class="table-container"><table>
@@ -81,11 +112,11 @@ const InvoicesPage = {
                 <tbody>${linesHtml}</tbody>
             </table></div>
             <div class="invoice-totals">
-                <div class="total-row"><span class="label">Subtotal</span><span class="value">${formatCurrency(inv.subtotal)}</span></div>
-                <div class="total-row"><span class="label">Tax</span><span class="value">${formatCurrency(inv.tax_amount)}</span></div>
-                <div class="total-row grand-total"><span class="label">Total</span><span class="value">${formatCurrency(inv.total)}</span></div>
-                <div class="total-row"><span class="label">Paid</span><span class="value">${formatCurrency(inv.amount_paid)}</span></div>
-                <div class="total-row grand-total"><span class="label">Balance Due</span><span class="value">${formatCurrency(inv.balance_due)}</span></div>
+                <div class="total-row"><span class="label">Subtotal</span><span class="value">${formatCurrency(inv.subtotal, invCcy)}</span></div>
+                <div class="total-row"><span class="label">Tax</span><span class="value">${formatCurrency(inv.tax_amount, invCcy)}</span></div>
+                <div class="total-row grand-total"><span class="label">Total</span><span class="value">${totalLine}</span></div>
+                <div class="total-row"><span class="label">Paid</span><span class="value">${formatCurrency(inv.amount_paid, invCcy)}</span></div>
+                <div class="total-row grand-total"><span class="label">Balance Due</span><span class="value">${formatCurrency(inv.balance_due, invCcy)}</span></div>
             </div>
             ${inv.notes ? `<p style="margin-top:12px;color:var(--gray-500);">${escapeHtml(inv.notes)}</p>` : ''}
             <div style="margin-top:16px; border-top:1px solid var(--gray-200); padding-top:12px;">
@@ -187,6 +218,7 @@ const InvoicesPage = {
             API.get('/settings'),
         ]);
 
+        const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
         let inv = {
             customer_id: '',
             date: todayISO(),
@@ -194,6 +226,8 @@ const InvoicesPage = {
             po_number: '',
             tax_rate: (parseFloat(settings.default_tax_rate || '0') || 0) / 100,
             notes: settings.invoice_notes || '',
+            currency: homeCurrency,
+            exchange_rate: 1,
             lines: [],
         };
         if (id) inv = await API.get(`/invoices/${id}`);
@@ -202,6 +236,7 @@ const InvoicesPage = {
         InvoicesPage.lineCount = inv.lines.length;
         InvoicesPage._items = items;
         InvoicesPage._customers = customers;
+        InvoicesPage._homeCurrency = homeCurrency;
 
         const custOpts = customers.map(c => `<option value="${c.id}" ${inv.customer_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
 
@@ -232,6 +267,13 @@ const InvoicesPage = {
                     <div class="form-group"><label>Tax Rate (%)</label>
                         <input name="tax_rate" type="number" step="0.01" value="${(inv.tax_rate * 100) || 0}"
                             oninput="InvoicesPage.recalc()"></div>
+                    <div class="form-group"><label>Currency</label>
+                        <select name="currency" id="invoice-currency" onchange="InvoicesPage.currencyChanged()">
+                            ${currencyOptions((inv.currency || homeCurrency).toUpperCase())}
+                        </select></div>
+                    <div class="form-group"><label>Exchange Rate <span style="color:var(--gray-500); font-weight:normal;">(→ ${escapeHtml(homeCurrency)})</span></label>
+                        <input name="exchange_rate" id="invoice-exchange-rate" type="number" step="0.00000001"
+                            value="${parseFloat(inv.exchange_rate || 1)}"></div>
                 </div>
                 <h3 style="margin:16px 0 8px; font-size:14px; color:var(--gray-600);">Line Items</h3>
                 <table class="line-items-table">
@@ -257,7 +299,49 @@ const InvoicesPage = {
                 </div>
             </form>`);
         if (!id && inv.customer_id) InvoicesPage.customerSelected(inv.customer_id);
+        InvoicesPage._syncRateField();
         InvoicesPage.recalc();
+    },
+
+    _syncRateField() {
+        // Disable the rate field when invoice currency == home currency
+        // (rate is always 1.0 in that case).
+        const ccy = $('#invoice-currency')?.value;
+        const rateField = $('#invoice-exchange-rate');
+        if (!ccy || !rateField) return;
+        if (ccy === InvoicesPage._homeCurrency) {
+            rateField.value = '1';
+            rateField.disabled = true;
+        } else {
+            rateField.disabled = false;
+        }
+    },
+
+    async currencyChanged() {
+        const ccy = $('#invoice-currency').value;
+        const rateField = $('#invoice-exchange-rate');
+        if (ccy === InvoicesPage._homeCurrency) {
+            rateField.value = '1';
+            rateField.disabled = true;
+            return;
+        }
+        rateField.disabled = false;
+        // Pre-populate from BoC; user can still edit. If unavailable, leave 1.0.
+        try {
+            const res = await API.get(`/fx/rate?from=${encodeURIComponent(ccy)}&to=${encodeURIComponent(InvoicesPage._homeCurrency)}`);
+            if (res.rate) {
+                rateField.value = parseFloat(res.rate);
+                if (res.source === 'bankofcanada-cross') {
+                    toast(`FX rate ${ccy}→${InvoicesPage._homeCurrency}: ${parseFloat(res.rate).toFixed(4)} (cross-rate via CAD)`);
+                }
+            } else {
+                rateField.value = '1';
+                toast(`FX rate ${ccy}→${InvoicesPage._homeCurrency} unavailable; using 1.0`, 'error');
+            }
+        } catch (err) {
+            rateField.value = '1';
+            toast(`FX lookup failed; using 1.0`, 'error');
+        }
     },
 
     customerSelected(customerId) {
@@ -373,6 +457,8 @@ const InvoicesPage = {
             po_number: form.po_number.value || null,
             tax_rate: (parseFloat(form.tax_rate.value) || 0) / 100,
             notes: form.notes.value || null,
+            currency: (form.currency.value || 'USD').toUpperCase(),
+            exchange_rate: parseFloat(form.exchange_rate.value) || 1,
             lines,
         };
 

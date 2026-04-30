@@ -73,4 +73,6 @@ DEFAULT_SETTINGS = {
     "late_fee_enabled": "false",
     "late_fee_rate": "1.5",
     "late_fee_grace_days": "15",
+    # Phase 11: Multi-currency (invoices only in this phase)
+    "home_currency": "USD",
 }
