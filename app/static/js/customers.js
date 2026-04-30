@@ -5,6 +5,79 @@
  * a colon-delimited string in CUST.DAT field 0x02 — e.g. "Smith:Kitchen Remodel".
  * We flattened this because nobody actually liked that feature.
  */
+const COUNTRIES = [
+    { code: 'US', name: 'United States' },
+    { code: 'CA', name: 'Canada' },
+    { code: 'IE', name: 'Ireland' },
+    { code: 'GB', name: 'United Kingdom' },
+    { code: 'AU', name: 'Australia' },
+    { code: '-', name: '──────────', disabled: true },
+    { code: 'AR', name: 'Argentina' },
+    { code: 'AT', name: 'Austria' },
+    { code: 'BE', name: 'Belgium' },
+    { code: 'BR', name: 'Brazil' },
+    { code: 'BG', name: 'Bulgaria' },
+    { code: 'CL', name: 'Chile' },
+    { code: 'CN', name: 'China' },
+    { code: 'CO', name: 'Colombia' },
+    { code: 'HR', name: 'Croatia' },
+    { code: 'CZ', name: 'Czech Republic' },
+    { code: 'DK', name: 'Denmark' },
+    { code: 'EG', name: 'Egypt' },
+    { code: 'EE', name: 'Estonia' },
+    { code: 'FI', name: 'Finland' },
+    { code: 'FR', name: 'France' },
+    { code: 'DE', name: 'Germany' },
+    { code: 'GR', name: 'Greece' },
+    { code: 'HK', name: 'Hong Kong' },
+    { code: 'HU', name: 'Hungary' },
+    { code: 'IS', name: 'Iceland' },
+    { code: 'IN', name: 'India' },
+    { code: 'ID', name: 'Indonesia' },
+    { code: 'IL', name: 'Israel' },
+    { code: 'IT', name: 'Italy' },
+    { code: 'JP', name: 'Japan' },
+    { code: 'KE', name: 'Kenya' },
+    { code: 'LV', name: 'Latvia' },
+    { code: 'LT', name: 'Lithuania' },
+    { code: 'LU', name: 'Luxembourg' },
+    { code: 'MY', name: 'Malaysia' },
+    { code: 'MX', name: 'Mexico' },
+    { code: 'MA', name: 'Morocco' },
+    { code: 'NL', name: 'Netherlands' },
+    { code: 'NZ', name: 'New Zealand' },
+    { code: 'NG', name: 'Nigeria' },
+    { code: 'NO', name: 'Norway' },
+    { code: 'PK', name: 'Pakistan' },
+    { code: 'PE', name: 'Peru' },
+    { code: 'PH', name: 'Philippines' },
+    { code: 'PL', name: 'Poland' },
+    { code: 'PT', name: 'Portugal' },
+    { code: 'RO', name: 'Romania' },
+    { code: 'SA', name: 'Saudi Arabia' },
+    { code: 'SG', name: 'Singapore' },
+    { code: 'SK', name: 'Slovakia' },
+    { code: 'SI', name: 'Slovenia' },
+    { code: 'ZA', name: 'South Africa' },
+    { code: 'KR', name: 'South Korea' },
+    { code: 'ES', name: 'Spain' },
+    { code: 'SE', name: 'Sweden' },
+    { code: 'CH', name: 'Switzerland' },
+    { code: 'TW', name: 'Taiwan' },
+    { code: 'TH', name: 'Thailand' },
+    { code: 'TR', name: 'Turkey' },
+    { code: 'UA', name: 'Ukraine' },
+    { code: 'AE', name: 'United Arab Emirates' },
+    { code: 'UY', name: 'Uruguay' },
+    { code: 'VN', name: 'Vietnam' },
+];
+
+function countryOptions(selected) {
+    return COUNTRIES.map(c =>
+        `<option value="${c.code}"${c.disabled ? ' disabled' : ''}${c.code === selected ? ' selected' : ''}>${c.name}</option>`
+    ).join('');
+}
+
 const CustomersPage = {
     async render() {
         const customers = await API.get('/customers');
@@ -53,8 +126,8 @@ const CustomersPage = {
 
     async showForm(id = null) {
         let c = { name: '', company: '', email: '', phone: '', mobile: '', fax: '', website: '',
-            bill_address1: '', bill_address2: '', bill_city: '', bill_state: '', bill_zip: '',
-            ship_address1: '', ship_address2: '', ship_city: '', ship_state: '', ship_zip: '',
+            bill_address1: '', bill_address2: '', bill_city: '', bill_state: '', bill_zip: '', bill_country: 'US',
+            ship_address1: '', ship_address2: '', ship_city: '', ship_state: '', ship_zip: '', ship_country: 'US',
             terms: 'Net 30', credit_limit: '', tax_id: '', is_taxable: true, notes: '' };
         if (id) c = await API.get(`/customers/${id}`);
 
@@ -90,10 +163,12 @@ const CustomersPage = {
                         <input name="bill_address2" value="${escapeHtml(c.bill_address2 || '')}"></div>
                     <div class="form-group"><label>City</label>
                         <input name="bill_city" value="${escapeHtml(c.bill_city || '')}"></div>
-                    <div class="form-group"><label>State</label>
+                    <div class="form-group"><label>State / County</label>
                         <input name="bill_state" value="${escapeHtml(c.bill_state || '')}"></div>
-                    <div class="form-group"><label>ZIP</label>
+                    <div class="form-group"><label>ZIP / Postcode</label>
                         <input name="bill_zip" value="${escapeHtml(c.bill_zip || '')}"></div>
+                    <div class="form-group"><label>Country</label>
+                        <select name="bill_country">${countryOptions(c.bill_country || 'US')}</select></div>
                 </div>
                 <h3 style="margin:16px 0 8px; font-size:14px; color:var(--gray-600);">Shipping Address</h3>
                 <div class="form-grid">
@@ -103,10 +178,12 @@ const CustomersPage = {
                         <input name="ship_address2" value="${escapeHtml(c.ship_address2 || '')}"></div>
                     <div class="form-group"><label>City</label>
                         <input name="ship_city" value="${escapeHtml(c.ship_city || '')}"></div>
-                    <div class="form-group"><label>State</label>
+                    <div class="form-group"><label>State / County</label>
                         <input name="ship_state" value="${escapeHtml(c.ship_state || '')}"></div>
-                    <div class="form-group"><label>ZIP</label>
+                    <div class="form-group"><label>ZIP / Postcode</label>
                         <input name="ship_zip" value="${escapeHtml(c.ship_zip || '')}"></div>
+                    <div class="form-group"><label>Country</label>
+                        <select name="ship_country">${countryOptions(c.ship_country || 'US')}</select></div>
                 </div>
                 <div class="form-grid" style="margin-top:16px;">
                     <div class="form-group"><label>Tax ID</label>
