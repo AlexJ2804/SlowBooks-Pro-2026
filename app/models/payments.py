@@ -31,6 +31,10 @@ class Payment(Base):
     transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=True)
     is_voided = Column(Boolean, default=False)
 
+    currency = Column(String(3), default="USD", nullable=False)
+    exchange_rate = Column(Numeric(18, 8), default=1, nullable=False)
+    home_currency_amount = Column(Numeric(12, 2), default=0, nullable=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     customer = relationship("Customer", backref="payments")

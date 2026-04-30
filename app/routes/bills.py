@@ -72,11 +72,17 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db)):
 
     subtotal, tax_amount, total = compute_line_totals(data.lines, data.tax_rate)
 
+    currency = (data.currency or "USD").upper()
+    exchange_rate = Decimal(str(data.exchange_rate)) if data.exchange_rate is not None else Decimal("1")
+    home_currency_amount = (Decimal(str(total)) * exchange_rate).quantize(Decimal("0.01"))
+
     bill = Bill(
         bill_number=data.bill_number, vendor_id=data.vendor_id, date=data.date,
         due_date=due_date, terms=data.terms, ref_number=data.ref_number, po_id=data.po_id,
         subtotal=subtotal, tax_rate=data.tax_rate, tax_amount=tax_amount,
         total=total, balance_due=total, notes=data.notes,
+        currency=currency, exchange_rate=exchange_rate,
+        home_currency_amount=home_currency_amount,
     )
     db.add(bill)
     db.flush()
@@ -132,6 +138,7 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db)):
         txn = create_journal_entry(
             db, data.date, f"Bill {data.bill_number} - {vendor.name}",
             journal_lines, source_type="bill", source_id=bill.id,
+            currency=currency, exchange_rate=exchange_rate,
         )
         bill.transaction_id = txn.id
 
@@ -161,8 +168,11 @@ def void_bill(bill_id: int, db: Session = Depends(get_db)):
             for ol in original_lines
         ]
         if reverse_lines:
-            create_journal_entry(db, bill.date, f"VOID Bill {bill.bill_number}",
-                                 reverse_lines, source_type="bill_void", source_id=bill.id)
+            create_journal_entry(
+                db, bill.date, f"VOID Bill {bill.bill_number}",
+                reverse_lines, source_type="bill_void", source_id=bill.id,
+                currency=bill.currency, exchange_rate=bill.exchange_rate,
+            )
 
     bill.status = BillStatus.VOID
     bill.balance_due = Decimal("0")

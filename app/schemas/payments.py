@@ -27,6 +27,8 @@ class PaymentCreate(BaseModel):
     reference: Optional[str] = None
     deposit_to_account_id: Optional[int] = None
     notes: Optional[str] = None
+    currency: str = "USD"
+    exchange_rate: Decimal = Decimal("1")
     allocations: list[PaymentAllocationCreate] = []
 
 
@@ -40,6 +42,9 @@ class PaymentResponse(BaseModel):
     reference: Optional[str]
     deposit_to_account_id: Optional[int]
     notes: Optional[str]
+    currency: str = "USD"
+    exchange_rate: Decimal = Decimal("1")
+    home_currency_amount: Decimal = Decimal("0")
     allocations: list[PaymentAllocationResponse] = []
     customer_name: Optional[str] = None
     is_voided: bool = False

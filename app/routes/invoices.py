@@ -94,7 +94,9 @@ def _build_invoice_journal_lines(db: Session, invoice_total, tax_amount, tax_acc
 def _reverse_and_delete_journal(db: Session, transaction_id: int):
     """Reverse account balances for existing journal lines, then delete them.
 
-    Used by update_invoice to prepare for a fresh journal rebuild.
+    Used by update_invoice to prepare for a fresh journal rebuild. Account
+    balances are kept in home currency (see accounting.create_journal_entry),
+    so we reverse using the home-currency columns on the existing lines.
     """
     from app.models.transactions import TransactionLine
     old_lines = db.query(TransactionLine).filter(
@@ -103,10 +105,12 @@ def _reverse_and_delete_journal(db: Session, transaction_id: int):
     for ol in old_lines:
         account = db.query(Account).filter(Account.id == ol.account_id).first()
         if account:
+            home_debit = ol.home_currency_debit or Decimal("0")
+            home_credit = ol.home_currency_credit or Decimal("0")
             if account.account_type.value in ("asset", "expense", "cogs"):
-                account.balance -= ol.debit - ol.credit
+                account.balance -= home_debit - home_credit
             else:
-                account.balance -= ol.credit - ol.debit
+                account.balance -= home_credit - home_debit
     db.query(TransactionLine).filter(
         TransactionLine.transaction_id == transaction_id
     ).delete()
@@ -255,6 +259,7 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
             db, data.date, f"Invoice #{invoice_number} - {customer.name}",
             journal_lines, source_type="invoice", source_id=invoice.id,
             reference=invoice_number,
+            currency=currency, exchange_rate=exchange_rate,
         )
         invoice.transaction_id = txn.id
 
@@ -327,28 +332,37 @@ def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(g
                     db, total, tax_amount, tax_account_id,
                     ar_id, default_income_id, effective_lines, invoice.invoice_number,
                 )
-                # Rebuild txn lines under the same transaction_id
+                # Rebuild txn lines under the same transaction_id. Home-currency
+                # amounts are recomputed from the invoice's saved rate so the
+                # ledger reflects the (possibly updated) currency/rate.
                 from app.models.transactions import Transaction, TransactionLine
+                rate = Decimal(str(invoice.exchange_rate or 1))
                 txn = db.query(Transaction).filter(Transaction.id == invoice.transaction_id).first()
                 if txn:
                     txn.description = f"Invoice #{invoice.invoice_number} - {invoice.customer.name if invoice.customer else ''}"
+                    txn.currency = (invoice.currency or "USD").upper()
+                    txn.exchange_rate = rate
                 for jl in new_journal_lines:
                     debit = Decimal(str(jl.get("debit", 0)))
                     credit = Decimal(str(jl.get("credit", 0)))
                     if debit == 0 and credit == 0:
                         continue
+                    home_debit = (debit * rate).quantize(Decimal("0.01")) if debit else Decimal("0")
+                    home_credit = (credit * rate).quantize(Decimal("0.01")) if credit else Decimal("0")
                     db.add(TransactionLine(
                         transaction_id=invoice.transaction_id,
                         account_id=jl["account_id"],
                         debit=debit, credit=credit,
+                        home_currency_debit=home_debit,
+                        home_currency_credit=home_credit,
                         description=jl.get("description", ""),
                     ))
                     account = db.query(Account).filter(Account.id == jl["account_id"]).first()
                     if account:
                         if account.account_type.value in ("asset", "expense", "cogs"):
-                            account.balance += debit - credit
+                            account.balance += home_debit - home_credit
                         else:
-                            account.balance += credit - debit
+                            account.balance += home_credit - home_debit
 
     # Recalc home_currency_amount if total or rate changed.
     if needs_recompute or fx_changed:
@@ -434,6 +448,7 @@ def void_invoice(invoice_id: int, db: Session = Depends(get_db)):
                 f"VOID Invoice #{invoice.invoice_number}",
                 reverse_lines, source_type="invoice_void", source_id=invoice.id,
                 reference=invoice.invoice_number,
+                currency=invoice.currency, exchange_rate=invoice.exchange_rate,
             )
 
     invoice.status = InvoiceStatus.VOID
@@ -578,6 +593,7 @@ def apply_late_fees(db: Session = Depends(get_db)):
         txn = create_journal_entry(
             db, today, f"Late fee - Invoice #{inv.invoice_number}",
             journal_lines, source_type="late_fee", source_id=inv.id,
+            currency=inv.currency, exchange_rate=inv.exchange_rate,
         )
 
         # Update invoice totals (add to subtotal too so total == subtotal + tax_amount)
@@ -703,6 +719,7 @@ def duplicate_invoice(invoice_id: int, db: Session = Depends(get_db)):
             db, today, f"Invoice #{new_number} - {customer.name if customer else ''}",
             journal_lines, source_type="invoice", source_id=new_invoice.id,
             reference=new_number,
+            currency=new_invoice.currency, exchange_rate=new_invoice.exchange_rate,
         )
         new_invoice.transaction_id = txn.id
 

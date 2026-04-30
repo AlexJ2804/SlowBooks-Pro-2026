@@ -29,6 +29,12 @@ class Transaction(Base):
     source_type = Column(String(50), nullable=True)        # field 0x06 — maps to enum TxnTypeEnum
     source_id = Column(Integer, nullable=True)             # field 0x07, FK to source record ListID
 
+    # Phase 2 multi-currency: source-document currency + rate to home. Used by
+    # journal-only flows (cc_charges, manual journal entries) that don't have
+    # a separate document table to attach this to.
+    currency = Column(String(3), default="USD", nullable=False)
+    exchange_rate = Column(Numeric(18, 8), default=1, nullable=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     lines = relationship("TransactionLine", back_populates="transaction", cascade="all, delete-orphan")
@@ -50,6 +56,11 @@ class TransactionLine(Base):
     account_id = Column(Integer, ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=False, index=True)
     debit = Column(Numeric(12, 2), default=0, nullable=False)    # BCD[6] at offset 0x0C
     credit = Column(Numeric(12, 2), default=0, nullable=False)   # BCD[6] at offset 0x12
+    # Phase 2 multi-currency: home-currency equivalents. Reports sum these so
+    # P&L / balance sheet are correct regardless of source-document currency.
+    # Always equal to debit/credit when the transaction is in the home currency.
+    home_currency_debit = Column(Numeric(12, 2), default=0, nullable=False)
+    home_currency_credit = Column(Numeric(12, 2), default=0, nullable=False)
     description = Column(String(300), nullable=True)              # split memo, 0x18
 
     transaction = relationship("Transaction", back_populates="lines")

@@ -4,7 +4,12 @@
  */
 const BillsPage = {
     async render() {
-        const bills = await API.get('/bills');
+        const [bills, settings] = await Promise.all([
+            API.get('/bills'),
+            API.get('/settings'),
+        ]);
+        const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
+
         let html = `
             <div class="page-header">
                 <h2>Bills (Accounts Payable)</h2>
@@ -28,16 +33,20 @@ const BillsPage = {
         } else {
             html += `<div class="table-container"><table>
                 <thead><tr><th>Bill #</th><th>Vendor</th><th>Date</th><th>Due</th><th>Status</th>
-                <th class="amount">Total</th><th class="amount">Balance</th><th>Actions</th></tr></thead><tbody id="bill-tbody">`;
+                <th class="amount">Total</th>
+                <th class="amount">Total (${escapeHtml(homeCurrency)})</th>
+                <th class="amount">Balance</th><th>Actions</th></tr></thead><tbody id="bill-tbody">`;
             for (const b of bills) {
+                const ccy = (b.currency || 'USD').toUpperCase();
                 html += `<tr class="bill-row" data-status="${b.status}">
                     <td><strong>${escapeHtml(b.bill_number)}</strong></td>
                     <td>${escapeHtml(b.vendor_name || '')}</td>
                     <td>${formatDate(b.date)}</td>
                     <td>${formatDate(b.due_date)}</td>
                     <td>${statusBadge(b.status)}</td>
-                    <td class="amount">${formatCurrency(b.total)}</td>
-                    <td class="amount">${formatCurrency(b.balance_due)}</td>
+                    <td class="amount">${formatCurrency(b.total, ccy)}</td>
+                    <td class="amount">${formatCurrency(b.home_currency_amount, homeCurrency)}</td>
+                    <td class="amount">${formatCurrency(b.balance_due, ccy)}</td>
                     <td class="actions">
                         <button class="btn btn-sm btn-secondary" onclick="BillsPage.view(${b.id})">View</button>
                         ${b.status !== 'void' && b.status !== 'paid' ? `<button class="btn btn-sm btn-danger" onclick="BillsPage.void(${b.id})">Void</button>` : ''}
@@ -57,10 +66,20 @@ const BillsPage = {
     },
 
     async view(id) {
-        const bill = await API.get(`/bills/${id}`);
+        const [bill, settings] = await Promise.all([
+            API.get(`/bills/${id}`),
+            API.get('/settings'),
+        ]);
+        const ccy = (bill.currency || 'USD').toUpperCase();
+        const homeCcy = (settings.home_currency || 'USD').toUpperCase();
+        const showHome = ccy !== homeCcy;
+        const totalLine = showHome
+            ? `${formatCurrency(bill.total, ccy)} <span style="color:var(--gray-500); font-weight:normal;">(≈ ${formatCurrency(bill.home_currency_amount, homeCcy)})</span>`
+            : formatCurrency(bill.total, ccy);
+
         let linesHtml = bill.lines.map(l =>
             `<tr><td>${escapeHtml(l.description || '')}</td><td class="amount">${l.quantity}</td>
-             <td class="amount">${formatCurrency(l.rate)}</td><td class="amount">${formatCurrency(l.amount)}</td></tr>`
+             <td class="amount">${formatCurrency(l.rate, ccy)}</td><td class="amount">${formatCurrency(l.amount, ccy)}</td></tr>`
         ).join('');
 
         openModal(`Bill ${bill.bill_number}`, `
@@ -68,16 +87,17 @@ const BillsPage = {
                 <strong>Vendor:</strong> ${escapeHtml(bill.vendor_name || '')}<br>
                 <strong>Date:</strong> ${formatDate(bill.date)}<br>
                 <strong>Due:</strong> ${formatDate(bill.due_date)}<br>
-                <strong>Status:</strong> ${statusBadge(bill.status)}
+                <strong>Status:</strong> ${statusBadge(bill.status)}<br>
+                <strong>Currency:</strong> ${escapeHtml(ccy)}${showHome ? ` <span style="color:var(--gray-500);">(rate ${parseFloat(bill.exchange_rate).toFixed(4)} → ${escapeHtml(homeCcy)})</span>` : ''}
             </div>
             <div class="table-container"><table>
                 <thead><tr><th>Description</th><th class="amount">Qty</th><th class="amount">Rate</th><th class="amount">Amount</th></tr></thead>
                 <tbody>${linesHtml}</tbody>
             </table></div>
             <div class="invoice-totals">
-                <div class="total-row grand-total"><span class="label">Total</span><span class="value">${formatCurrency(bill.total)}</span></div>
-                <div class="total-row"><span class="label">Paid</span><span class="value">${formatCurrency(bill.amount_paid)}</span></div>
-                <div class="total-row grand-total"><span class="label">Balance</span><span class="value">${formatCurrency(bill.balance_due)}</span></div>
+                <div class="total-row grand-total"><span class="label">Total</span><span class="value">${totalLine}</span></div>
+                <div class="total-row"><span class="label">Paid</span><span class="value">${formatCurrency(bill.amount_paid, ccy)}</span></div>
+                <div class="total-row grand-total"><span class="label">Balance</span><span class="value">${formatCurrency(bill.balance_due, ccy)}</span></div>
             </div>
             <div style="margin-top:16px; border-top:1px solid var(--gray-200); padding-top:12px;">
                 <h3 style="font-size:13px; margin-bottom:8px;">Attachments</h3>
@@ -108,13 +128,18 @@ const BillsPage = {
     },
 
     async showForm() {
-        const [vendors, items, accounts] = await Promise.all([
+        const [vendors, items, accounts, settings] = await Promise.all([
             API.get('/vendors?active_only=true'),
             API.get('/items?active_only=true'),
             API.get('/accounts?account_type=expense'),
+            API.get('/settings'),
         ]);
         BillsPage._items = items;
         BillsPage.lineCount = 1;
+
+        const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
+        BillsPage._homeCurrency = homeCurrency;
+        BillsPage._formCurrency = homeCurrency;
 
         BillsPage._vendors = vendors;
         const vendorOpts = vendors.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('');
@@ -134,6 +159,12 @@ const BillsPage = {
                             ${['Net 15','Net 30','Net 45','Net 60','Due on Receipt'].map(t =>
                                 `<option ${t==='Net 30'?'selected':''}>${t}</option>`).join('')}
                         </select></div>
+                    <div class="form-group"><label>Currency</label>
+                        <select name="currency" id="bill-currency" onchange="BillsPage.currencyChanged()">
+                            ${currencyOptions(homeCurrency)}
+                        </select></div>
+                    <div class="form-group"><label>Exchange Rate <span style="color:var(--gray-500); font-weight:normal;">(→ ${escapeHtml(homeCurrency)})</span></label>
+                        <input name="exchange_rate" id="bill-exchange-rate" type="number" step="0.00000001" value="1" disabled></div>
                 </div>
                 <h3 style="margin:12px 0 8px;font-size:14px;">Line Items</h3>
                 <table class="line-items-table">
@@ -171,6 +202,33 @@ const BillsPage = {
             </tr>`);
     },
 
+    async currencyChanged() {
+        const ccy = $('#bill-currency').value;
+        const rateField = $('#bill-exchange-rate');
+        BillsPage._formCurrency = ccy;
+        if (ccy === BillsPage._homeCurrency) {
+            rateField.value = '1';
+            rateField.disabled = true;
+            return;
+        }
+        rateField.disabled = false;
+        try {
+            const res = await API.get(`/fx/rate?from=${encodeURIComponent(ccy)}&to=${encodeURIComponent(BillsPage._homeCurrency)}`);
+            if (res.rate) {
+                rateField.value = parseFloat(res.rate);
+                if (res.source === 'bankofcanada-cross') {
+                    toast(`FX rate ${ccy}→${BillsPage._homeCurrency}: ${parseFloat(res.rate).toFixed(4)} (cross-rate via CAD)`);
+                }
+            } else {
+                rateField.value = '1';
+                toast(`FX rate ${ccy}→${BillsPage._homeCurrency} unavailable; using 1.0`, 'error');
+            }
+        } catch (err) {
+            rateField.value = '1';
+            toast('FX lookup failed; using 1.0', 'error');
+        }
+    },
+
     async save(e) {
         e.preventDefault();
         const form = e.target;
@@ -191,6 +249,8 @@ const BillsPage = {
                 date: form.date.value,
                 terms: form.terms.value,
                 notes: form.notes.value || null,
+                currency: (form.currency.value || 'USD').toUpperCase(),
+                exchange_rate: parseFloat(form.exchange_rate.value) || 1,
                 lines,
             });
             toast('Bill saved');
@@ -209,31 +269,43 @@ const BillsPage = {
     },
 
     async showPayForm() {
-        const [vendors, bills, accounts] = await Promise.all([
+        const [vendors, bills, accounts, settings] = await Promise.all([
             API.get('/vendors?active_only=true'),
             API.get('/bills?status=unpaid'),
             API.get('/accounts?account_type=asset'),
+            API.get('/settings'),
         ]);
         const partials = await API.get('/bills?status=partial');
         const openBills = [...bills, ...partials];
 
+        const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
+        BillsPage._homeCurrency = homeCurrency;
+        BillsPage._payCurrency = homeCurrency;
+
         const vendorOpts = vendors.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('');
         const acctOpts = accounts.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
 
-        let billRows = openBills.map(b => `
-            <tr>
+        let billRows = openBills.map(b => {
+            const ccy = (b.currency || 'USD').toUpperCase();
+            return `
+            <tr data-currency="${ccy}">
                 <td><input type="checkbox" class="pay-check" data-bill="${b.id}" data-balance="${b.balance_due}"></td>
                 <td>${escapeHtml(b.bill_number)}</td>
                 <td>${escapeHtml(b.vendor_name || '')}</td>
                 <td>${formatDate(b.due_date)}</td>
-                <td class="amount">${formatCurrency(b.balance_due)}</td>
+                <td><span style="font-size:10px; padding:1px 6px; background:var(--gray-100); border-radius:4px;">${escapeHtml(ccy)}</span></td>
+                <td class="amount">${formatCurrency(b.balance_due, ccy)}</td>
                 <td><input type="number" step="0.01" class="pay-amount" data-bill="${b.id}" value="0" style="width:80px;"></td>
-            </tr>`).join('');
+            </tr>`;
+        }).join('');
 
-        if (!billRows) billRows = '<tr><td colspan="6" style="color:var(--text-muted);">No open bills</td></tr>';
+        if (!billRows) billRows = '<tr><td colspan="7" style="color:var(--text-muted);">No open bills</td></tr>';
 
         openModal('Pay Bills', `
             <form onsubmit="BillsPage.savePay(event)">
+                <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
+                    Cross-currency reconciliation is not supported. All selected bills must be in the same currency as the payment.
+                </div>
                 <div class="form-grid">
                     <div class="form-group"><label>Pay From Account</label>
                         <select name="pay_from_account_id"><option value="">Select...</option>${acctOpts}</select></div>
@@ -246,9 +318,16 @@ const BillsPage = {
                         </select></div>
                     <div class="form-group"><label>Check #</label>
                         <input name="check_number"></div>
+                    <div class="form-group"><label>Currency</label>
+                        <select name="currency" id="billpay-currency" onchange="BillsPage.payCurrencyChanged()">
+                            ${currencyOptions(homeCurrency)}
+                        </select></div>
+                    <div class="form-group"><label>Exchange Rate <span style="color:var(--gray-500); font-weight:normal;">(→ ${escapeHtml(homeCurrency)})</span></label>
+                        <input name="exchange_rate" id="billpay-exchange-rate" type="number" step="0.00000001" value="1" disabled></div>
                 </div>
                 <div class="table-container" style="margin-top:12px;"><table>
                     <thead><tr><th style="width:30px;"></th><th>Bill #</th><th>Vendor</th><th>Due</th>
+                    <th>Ccy</th>
                     <th class="amount">Balance</th><th class="amount">Payment</th></tr></thead>
                     <tbody>${billRows}</tbody>
                 </table></div>
@@ -268,19 +347,55 @@ const BillsPage = {
         });
     },
 
+    async payCurrencyChanged() {
+        const ccy = $('#billpay-currency').value;
+        const rateField = $('#billpay-exchange-rate');
+        BillsPage._payCurrency = ccy;
+        if (ccy === BillsPage._homeCurrency) {
+            rateField.value = '1';
+            rateField.disabled = true;
+            return;
+        }
+        rateField.disabled = false;
+        try {
+            const res = await API.get(`/fx/rate?from=${encodeURIComponent(ccy)}&to=${encodeURIComponent(BillsPage._homeCurrency)}`);
+            if (res.rate) {
+                rateField.value = parseFloat(res.rate);
+                if (res.source === 'bankofcanada-cross') {
+                    toast(`FX rate ${ccy}→${BillsPage._homeCurrency}: ${parseFloat(res.rate).toFixed(4)} (cross-rate via CAD)`);
+                }
+            } else {
+                rateField.value = '1';
+                toast(`FX rate ${ccy}→${BillsPage._homeCurrency} unavailable; using 1.0`, 'error');
+            }
+        } catch (err) {
+            rateField.value = '1';
+            toast('FX lookup failed; using 1.0', 'error');
+        }
+    },
+
     async savePay(e) {
         e.preventDefault();
         const form = e.target;
+        const payCcy = (form.currency.value || 'USD').toUpperCase();
         const allocations = [];
         let total = 0;
+        let mismatch = null;
         $$('.pay-amount').forEach(input => {
             const amt = parseFloat(input.value) || 0;
             if (amt > 0) {
+                const row = input.closest('tr');
+                const rowCcy = (row?.dataset.currency || 'USD').toUpperCase();
+                if (rowCcy !== payCcy && !mismatch) mismatch = rowCcy;
                 allocations.push({ bill_id: parseInt(input.dataset.bill), amount: amt });
                 total += amt;
             }
         });
         if (allocations.length === 0) { toast('Select bills to pay', 'error'); return; }
+        if (mismatch) {
+            toast(`Selected bill is in ${mismatch}, but payment is in ${payCcy}. All selected bills must match the payment currency.`, 'error');
+            return;
+        }
 
         // Get vendor from first bill
         const firstBill = await API.get(`/bills/${allocations[0].bill_id}`);
@@ -293,6 +408,8 @@ const BillsPage = {
                 method: form.method.value,
                 check_number: form.check_number.value || null,
                 pay_from_account_id: form.pay_from_account_id.value ? parseInt(form.pay_from_account_id.value) : null,
+                currency: payCcy,
+                exchange_rate: parseFloat(form.exchange_rate.value) || 1,
                 allocations,
             });
             toast('Bills paid');

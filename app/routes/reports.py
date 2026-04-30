@@ -55,12 +55,17 @@ def _totals_by_account(db, acct_type, date_start=None, date_end=None):
     """Return a list of {account_name, account_number, amount} rows where amount
     is signed by the account type's natural balance (always positive for a
     normal-balance ledger).
+
+    Sums home-currency columns so reports are correct in the home currency
+    regardless of source-document currency. Each TransactionLine carries both
+    native (debit/credit) and home-currency (home_currency_debit/credit)
+    amounts; native columns remain available for any native-currency view.
     """
     q = (
         db.query(
             Account.name, Account.account_number,
-            sqlfunc.coalesce(sqlfunc.sum(TransactionLine.debit), 0),
-            sqlfunc.coalesce(sqlfunc.sum(TransactionLine.credit), 0),
+            sqlfunc.coalesce(sqlfunc.sum(TransactionLine.home_currency_debit), 0),
+            sqlfunc.coalesce(sqlfunc.sum(TransactionLine.home_currency_credit), 0),
         )
         .join(TransactionLine, TransactionLine.account_id == Account.id)
         .join(Transaction, TransactionLine.transaction_id == Transaction.id)
@@ -102,9 +107,12 @@ def profit_loss(
     total_cogs = sum(c["amount"] for c in cogs)
     total_expenses = sum(e["amount"] for e in expenses)
 
+    home_currency = (get_settings(db).get("home_currency") or "USD").upper()
+
     return {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
+        "home_currency": home_currency,
         "income": income,
         "cogs": cogs,
         "expenses": expenses,
@@ -129,8 +137,11 @@ def balance_sheet(as_of_date: date = Query(default=None), db: Session = Depends(
     total_liabilities = sum(l["amount"] for l in liabilities)
     total_equity = sum(e["amount"] for e in equity)
 
+    home_currency = (get_settings(db).get("home_currency") or "USD").upper()
+
     return {
         "as_of_date": as_of_date.isoformat(),
+        "home_currency": home_currency,
         "assets": assets,
         "liabilities": liabilities,
         "equity": equity,

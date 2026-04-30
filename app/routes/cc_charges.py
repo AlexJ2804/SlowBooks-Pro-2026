@@ -49,6 +49,9 @@ def list_cc_charges(db: Session = Depends(get_db)):
             "description": txn.description or "",
             "reference": txn.reference or "",
             "amount": float(expense_line.debit) if expense_line else 0,
+            "currency": (txn.currency or "USD"),
+            "exchange_rate": float(txn.exchange_rate or 1),
+            "home_currency_amount": float(expense_line.home_currency_debit) if expense_line else 0,
             "account_name": acct.name if acct else "",
         })
     return results
@@ -85,12 +88,24 @@ def create_cc_charge(data: CCChargeCreate, db: Session = Depends(get_db)):
         },
     ]
 
+    currency = (data.currency or "USD").upper()
+    exchange_rate = data.exchange_rate if isinstance(data.exchange_rate, Decimal) else Decimal(str(data.exchange_rate or 1))
+
     desc = f"CC Charge: {data.payee}" if data.payee else "Credit Card Charge"
     txn = create_journal_entry(
         db, data.date, desc,
         journal_lines, source_type="cc_charge",
         reference=data.reference or "",
+        currency=currency, exchange_rate=exchange_rate,
     )
 
     db.commit()
-    return {"status": "ok", "transaction_id": txn.id, "amount": float(amount)}
+    home_amt = (amount * exchange_rate).quantize(Decimal("0.01"))
+    return {
+        "status": "ok",
+        "transaction_id": txn.id,
+        "amount": float(amount),
+        "currency": currency,
+        "exchange_rate": float(exchange_rate),
+        "home_currency_amount": float(home_amt),
+    }

@@ -58,13 +58,24 @@ def create_journal_entry(
     source_type: str = None,
     source_id: int = None,
     reference: str = None,
+    currency: str = "USD",
+    exchange_rate: Decimal = Decimal("1"),
 ) -> Transaction:
     """Create a balanced journal entry.
 
     lines: [{"account_id": int, "debit": Decimal, "credit": Decimal}, ...]
     Each line must have debit > 0 OR credit > 0, not both.
     Total debits must equal total credits.
+
+    `currency` and `exchange_rate` describe the source-document currency. Each
+    line's home-currency equivalent (debit/credit * exchange_rate) is stored
+    on TransactionLine so reports can sum in the home currency without having
+    to look up the source document. Defaults to USD/1 — existing callers
+    that haven't been updated still produce correct journals as long as the
+    source is USD.
     """
+    rate = exchange_rate if isinstance(exchange_rate, Decimal) else Decimal(str(exchange_rate))
+
     # Validate individual lines before summing
     for i, l in enumerate(lines):
         debit = Decimal(str(l.get("debit", 0)))
@@ -86,6 +97,8 @@ def create_journal_entry(
         source_type=source_type,
         source_id=source_id,
         reference=reference,
+        currency=(currency or "USD").upper(),
+        exchange_rate=rate,
     )
     db.add(txn)
     db.flush()
@@ -96,22 +109,31 @@ def create_journal_entry(
         if debit == 0 and credit == 0:
             continue
 
+        home_debit = _q(debit * rate) if debit else Decimal("0")
+        home_credit = _q(credit * rate) if credit else Decimal("0")
+
         txn_line = TransactionLine(
             transaction_id=txn.id,
             account_id=line_data["account_id"],
             debit=debit,
             credit=credit,
+            home_currency_debit=home_debit,
+            home_currency_credit=home_credit,
             description=line_data.get("description", ""),
         )
         db.add(txn_line)
 
-        # Update account balance
+        # Update account balance in HOME currency. Account.balance is a single
+        # running total and must be in one currency; reports and dashboards
+        # already display it as the home currency. Pre-phase-2 this used
+        # native amounts, which silently corrupted the balance whenever a
+        # non-USD journal posted.
         account = db.query(Account).filter(Account.id == line_data["account_id"]).first()
         if account:
             if account.account_type.value in ("asset", "expense", "cogs"):
-                account.balance += debit - credit
+                account.balance += home_debit - home_credit
             else:
-                account.balance += credit - debit
+                account.balance += home_credit - home_debit
 
     return txn
 

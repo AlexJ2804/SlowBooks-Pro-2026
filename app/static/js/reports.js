@@ -221,27 +221,29 @@ const ReportsPage = {
     async profitLoss() {
         await ReportsPage.openPeriodModal("Profit & Loss", "this_year_to_date", async (_period, range) => {
             const data = await API.get(`/reports/profit-loss?start_date=${range.start}&end_date=${range.end}`);
+            const home = (data.home_currency || 'USD').toUpperCase();
             const section = (items) => {
                 if (!items.length) return `<tr><td colspan="2" style="color:var(--gray-400);">None</td></tr>`;
                 return items.map(i =>
-                    `<tr><td style="padding-left:24px;">${escapeHtml(i.account_name)}</td><td class="amount">${formatCurrency(Math.abs(i.amount))}</td></tr>`
+                    `<tr><td style="padding-left:24px;">${escapeHtml(i.account_name)}</td><td class="amount">${formatCurrency(Math.abs(i.amount), home)}</td></tr>`
                 ).join("");
             };
             return `
-                <p style="margin-bottom:12px; color:var(--gray-500);">${formatDate(data.start_date)} &mdash; ${formatDate(data.end_date)}</p>
+                <p style="margin-bottom:4px; color:var(--gray-500);">${formatDate(data.start_date)} &mdash; ${formatDate(data.end_date)}</p>
+                <p style="margin-bottom:12px; font-size:11px; color:var(--text-muted);">All amounts in ${escapeHtml(home)} (home currency)</p>
                 <div class="table-container"><table>
                     <thead><tr><th>Account</th><th class="amount">Amount</th></tr></thead>
                     <tbody>
                         <tr><td><strong>Income</strong></td><td></td></tr>
                         ${section(data.income)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Income</td><td class="amount">${formatCurrency(data.total_income)}</td></tr>
+                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Income</td><td class="amount">${formatCurrency(data.total_income, home)}</td></tr>
                         <tr><td><strong>Cost of Goods Sold</strong></td><td></td></tr>
                         ${section(data.cogs)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Gross Profit</td><td class="amount">${formatCurrency(data.gross_profit)}</td></tr>
+                        <tr style="font-weight:600; background:var(--gray-50);"><td>Gross Profit</td><td class="amount">${formatCurrency(data.gross_profit, home)}</td></tr>
                         <tr><td><strong>Expenses</strong></td><td></td></tr>
                         ${section(data.expenses)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Expenses</td><td class="amount">${formatCurrency(data.total_expenses)}</td></tr>
-                        <tr style="font-weight:700; font-size:15px; background:var(--primary-light);"><td>Net Income</td><td class="amount">${formatCurrency(data.net_income)}</td></tr>
+                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Expenses</td><td class="amount">${formatCurrency(data.total_expenses, home)}</td></tr>
+                        <tr style="font-weight:700; font-size:15px; background:var(--primary-light);"><td>Net Income</td><td class="amount">${formatCurrency(data.net_income, home)}</td></tr>
                     </tbody>
                 </table></div>`;
         });
@@ -250,23 +252,25 @@ const ReportsPage = {
     async balanceSheet() {
         await ReportsPage.openPeriodModal("Balance Sheet", "this_year_to_date", async (_period, params) => {
             const data = await API.get(`/reports/balance-sheet?as_of_date=${params.as_of_date}`);
+            const home = (data.home_currency || 'USD').toUpperCase();
             const section = (items) => items.map(i =>
-                `<tr><td style="padding-left:24px;">${escapeHtml(i.account_name)}</td><td class="amount">${formatCurrency(Math.abs(i.amount))}</td></tr>`
+                `<tr><td style="padding-left:24px;">${escapeHtml(i.account_name)}</td><td class="amount">${formatCurrency(Math.abs(i.amount), home)}</td></tr>`
             ).join("") || `<tr><td colspan="2" style="color:var(--gray-400);">None</td></tr>`;
             return `
-                <p style="margin-bottom:12px; color:var(--gray-500);">As of ${formatDate(data.as_of_date)}</p>
+                <p style="margin-bottom:4px; color:var(--gray-500);">As of ${formatDate(data.as_of_date)}</p>
+                <p style="margin-bottom:12px; font-size:11px; color:var(--text-muted);">All amounts in ${escapeHtml(home)} (home currency)</p>
                 <div class="table-container"><table>
                     <thead><tr><th>Account</th><th class="amount">Amount</th></tr></thead>
                     <tbody>
                         <tr><td><strong>Assets</strong></td><td></td></tr>
                         ${section(data.assets)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Assets</td><td class="amount">${formatCurrency(data.total_assets)}</td></tr>
+                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Assets</td><td class="amount">${formatCurrency(data.total_assets, home)}</td></tr>
                         <tr><td><strong>Liabilities</strong></td><td></td></tr>
                         ${section(data.liabilities)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Liabilities</td><td class="amount">${formatCurrency(data.total_liabilities)}</td></tr>
+                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Liabilities</td><td class="amount">${formatCurrency(data.total_liabilities, home)}</td></tr>
                         <tr><td><strong>Equity</strong></td><td></td></tr>
                         ${section(data.equity)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Equity</td><td class="amount">${formatCurrency(data.total_equity)}</td></tr>
+                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Equity</td><td class="amount">${formatCurrency(data.total_equity, home)}</td></tr>
                     </tbody>
                 </table></div>`;
         }, "As Of", true);
