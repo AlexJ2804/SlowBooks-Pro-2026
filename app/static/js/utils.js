@@ -58,6 +58,55 @@ function escapeHtml(str) {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// Show or clear an inline error message immediately after a form field.
+// Used by the class-required pre-flight on every transaction form so the
+// failure is visible even after the toast auto-dismisses (3s).
+//
+// Usage:
+//   markFieldError(form.class_id, 'Class is required — please select one');
+//   markFieldError(form.class_id, null);   // clear
+//
+// The error span is appended to the field's parent (.form-group) and is
+// idempotent — repeated calls update the message rather than stacking spans.
+function markFieldError(field, message) {
+    if (!field) return;
+    const parent = field.closest('.form-group') || field.parentElement;
+    if (!parent) return;
+    let err = parent.querySelector('.field-error');
+    if (message) {
+        if (!err) {
+            err = document.createElement('div');
+            err.className = 'field-error';
+            err.style.cssText = 'color:var(--danger); font-size:11px; margin-top:4px; font-weight:600;';
+            parent.appendChild(err);
+        }
+        err.textContent = message;
+        field.setAttribute('aria-invalid', 'true');
+        // Clear once the user starts fixing it.
+        const onChange = () => { markFieldError(field, null); field.removeEventListener('change', onChange); field.removeEventListener('input', onChange); };
+        field.addEventListener('change', onChange);
+        field.addEventListener('input', onChange);
+    } else {
+        if (err) err.remove();
+        field.removeAttribute('aria-invalid');
+    }
+}
+
+// Convenience wrapper for the universal "class is required" pre-flight.
+// Returns true if the form's class_id field is filled in (and clears any
+// stale error); returns false and shows the inline error otherwise.
+function requireClassPicked(form) {
+    const field = form && form.class_id;
+    if (!field) return true;  // form has no class field — caller's responsibility
+    if (!field.value) {
+        markFieldError(field, 'Class is required — please select one');
+        toast('Pick a class before saving.', 'error');
+        return false;
+    }
+    markFieldError(field, null);
+    return true;
+}
+
 function disableSubmitButtons() {
     document.querySelectorAll('#modal .btn-primary').forEach(b => { b.disabled = true; b.dataset.origText = b.textContent; b.textContent = 'Saving...'; });
 }
@@ -296,10 +345,13 @@ const InlineCreate = {
         try {
             const created = await API.post(cfg.endpoint, body);
             toast(`Created ${cfg.title.replace('New ', '').toLowerCase()} "${created.name || created.id}"`);
+            // INVARIANT: capture the callback BEFORE close() — close() nulls
+            // _activeCallback as part of cleanup, so reading it afterwards
+            // would always return null and the parent dropdown would never
+            // refresh. This bit us once (phase 3 hotfix); don't reorder.
+            const cb = InlineCreate._activeCallback;
             InlineCreate.close();
-            if (typeof InlineCreate._activeCallback === 'function') {
-                InlineCreate._activeCallback(created);
-            }
+            if (typeof cb === 'function') cb(created);
         } catch (err) {
             toast(err.message || 'Save failed', 'error');
         }

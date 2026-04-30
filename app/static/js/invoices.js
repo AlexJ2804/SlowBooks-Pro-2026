@@ -250,17 +250,8 @@ const InvoicesPage = {
                         <select name="class_id" id="inv-class-select" required>${classOptions(classes, inv.class_id)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); InvoicesPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
-                        <select name="customer_id" id="inv-customer-select" required onchange="InvoicesPage.customerSelected(this.value)"><option value="">Select...</option><option value="__new__">+ New Customer</option>${custOpts}</select>
-                        <div id="inv-new-customer-form" style="display:none; margin-top:8px; padding:8px; border:1px solid var(--gray-300); border-radius:4px; background:var(--primary-light);">
-                            <div style="font-weight:700; font-size:11px; margin-bottom:6px;">Quick Add Customer</div>
-                            <input id="inv-new-cust-name" placeholder="Name *" style="width:100%; margin-bottom:4px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;">
-                            <input id="inv-new-cust-email" placeholder="Email" style="width:100%; margin-bottom:4px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;">
-                            <input id="inv-new-cust-phone" placeholder="Phone" style="width:100%; margin-bottom:4px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;">
-                            <div style="display:flex; gap:6px;">
-                                <button type="button" class="btn btn-sm btn-primary" onclick="InvoicesPage.saveNewCustomer()">Save</button>
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="InvoicesPage.cancelNewCustomer()">Cancel</button>
-                            </div>
-                        </div></div>
+                        <select name="customer_id" id="inv-customer-select" required onchange="InvoicesPage.customerSelected(this.value)"><option value="">Select...</option>${custOpts}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); InvoicesPage.newCustomer()">+ New customer</a></div>
                     <div class="form-group"><label>Date *</label>
                         <input name="date" type="date" required value="${inv.date}"></div>
                     <div class="form-group"><label>Terms</label>
@@ -292,6 +283,7 @@ const InvoicesPage = {
                     </tbody>
                 </table>
                 <button type="button" class="btn btn-sm btn-secondary" style="margin-top:8px;" onclick="InvoicesPage.addLine()">+ Add Line</button>
+                <a href="#" style="font-size:11px; margin-left:12px;" onclick="event.preventDefault(); InvoicesPage.newItem()">+ New item</a>
                 <div class="invoice-totals" id="inv-totals">
                     <div class="total-row"><span class="label">Subtotal</span><span class="value" id="inv-subtotal">$0.00</span></div>
                     <div class="total-row"><span class="label">Tax</span><span class="value" id="inv-tax">$0.00</span></div>
@@ -364,13 +356,6 @@ const InvoicesPage = {
     },
 
     customerSelected(customerId) {
-        if (customerId === '__new__') {
-            const form = $('#inv-new-customer-form');
-            if (form) form.style.display = 'block';
-            return;
-        }
-        const ncf = $('#inv-new-customer-form');
-        if (ncf) ncf.style.display = 'none';
         const customer = InvoicesPage._customers.find(c => c.id == customerId);
         const termsField = $('#invoice-terms');
         if (customer && termsField && customer.terms) {
@@ -378,27 +363,38 @@ const InvoicesPage = {
         }
     },
 
-    async saveNewCustomer() {
-        const name = $('#inv-new-cust-name').value.trim();
-        if (!name) { toast('Customer name is required', 'error'); return; }
-        try {
-            const cust = await API.post('/customers', {
-                name, email: $('#inv-new-cust-email').value.trim() || null,
-                phone: $('#inv-new-cust-phone').value.trim() || null,
-            });
-            InvoicesPage._customers.push(cust);
+    newCustomer() {
+        InlineCreate.open('customer', async (created) => {
+            const fresh = await API.get('/customers?active_only=true');
+            InvoicesPage._customers = fresh;
             const sel = $('#inv-customer-select');
-            const opt = document.createElement('option');
-            opt.value = cust.id; opt.textContent = cust.name; opt.selected = true;
-            sel.appendChild(opt);
-            $('#inv-new-customer-form').style.display = 'none';
-            toast(`Customer "${cust.name}" created`);
-        } catch (err) { toast(err.message, 'error'); }
+            if (sel) {
+                const opts = fresh.map(c =>
+                    `<option value="${c.id}"${c.id == created.id ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">Select...</option>${opts}`;
+                sel.value = String(created.id);
+            }
+        });
     },
 
-    cancelNewCustomer() {
-        $('#inv-new-customer-form').style.display = 'none';
-        $('#inv-customer-select').value = '';
+    newItem() {
+        InlineCreate.open('item', async (created) => {
+            const fresh = await API.get('/items?active_only=true');
+            InvoicesPage._items = fresh;
+            // Refresh every line's item dropdown, preserving each row's
+            // current selection. New rows added later already see the
+            // updated _items list via lineRowHtml.
+            $$('#inv-lines tr').forEach(row => {
+                const sel = row.querySelector('.line-item');
+                if (!sel) return;
+                const current = sel.value;
+                const opts = fresh.map(i =>
+                    `<option value="${i.id}"${i.id == current ? ' selected' : ''}>${escapeHtml(i.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">--</option>${opts}`;
+            });
+        });
     },
 
     lineRowHtml(idx, line, items) {
@@ -471,7 +467,7 @@ const InvoicesPage = {
             });
         });
 
-        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
+        if (!requireClassPicked(form)) return;
         const data = {
             customer_id: parseInt(form.customer_id.value),
             date: form.date.value,

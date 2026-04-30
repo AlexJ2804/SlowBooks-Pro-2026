@@ -45,6 +45,7 @@ const CreditMemosPage = {
             API.get('/classes'),
         ]);
         CreditMemosPage._items = items;
+        CreditMemosPage._customers = customers;
         CreditMemosPage._classes = classes;
         CreditMemosPage.lineCount = 1;
 
@@ -58,7 +59,8 @@ const CreditMemosPage = {
                         <select name="class_id" id="cm-class-select" required>${classOptions(classes)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); CreditMemosPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
-                        <select name="customer_id" required><option value="">Select...</option>${custOpts}</select></div>
+                        <select name="customer_id" id="cm-customer-select" required><option value="">Select...</option>${custOpts}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); CreditMemosPage.newCustomer()">+ New customer</a></div>
                     <div class="form-group"><label>Date *</label>
                         <input name="date" type="date" required value="${todayISO()}"></div>
                     <div class="form-group"><label>Tax Rate (%)</label>
@@ -77,6 +79,7 @@ const CreditMemosPage = {
                     </tbody>
                 </table>
                 <button type="button" class="btn btn-sm btn-secondary" style="margin-top:8px;" onclick="CreditMemosPage.addLine()">+ Add Line</button>
+                <a href="#" style="font-size:11px; margin-left:12px;" onclick="event.preventDefault(); CreditMemosPage.newItem()">+ New item</a>
                 <div class="form-group" style="margin-top:12px;"><label>Notes</label>
                     <textarea name="notes"></textarea></div>
                 <div class="form-actions">
@@ -111,7 +114,7 @@ const CreditMemosPage = {
                 line_order: i,
             });
         });
-        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
+        if (!requireClassPicked(form)) return;
         try {
             await API.post('/credit-memos', {
                 customer_id: parseInt(form.customer_id.value),
@@ -133,6 +136,37 @@ const CreditMemosPage = {
             CreditMemosPage._classes = fresh;
             const sel = $('#cm-class-select');
             if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
+    },
+
+    newCustomer() {
+        InlineCreate.open('customer', async (created) => {
+            const fresh = await API.get('/customers?active_only=true');
+            CreditMemosPage._customers = fresh;
+            const sel = $('#cm-customer-select');
+            if (sel) {
+                const opts = fresh.map(c =>
+                    `<option value="${c.id}"${c.id == created.id ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">Select...</option>${opts}`;
+                sel.value = String(created.id);
+            }
+        });
+    },
+
+    newItem() {
+        InlineCreate.open('item', async (created) => {
+            const fresh = await API.get('/items?active_only=true');
+            CreditMemosPage._items = fresh;
+            $$('#cm-lines tr').forEach(row => {
+                const sel = row.querySelector('.line-item');
+                if (!sel) return;
+                const current = sel.value;
+                const opts = fresh.map(i =>
+                    `<option value="${i.id}"${i.id == current ? ' selected' : ''}>${escapeHtml(i.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">--</option>${opts}`;
+            });
         });
     },
 

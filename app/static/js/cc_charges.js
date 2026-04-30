@@ -122,7 +122,7 @@ const CCChargesPage = {
     async save(e) {
         e.preventDefault();
         const form = e.target;
-        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
+        if (!requireClassPicked(form)) return;
         try {
             await API.post('/cc-charges', {
                 date: form.date.value,

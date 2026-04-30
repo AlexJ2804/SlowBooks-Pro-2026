@@ -154,7 +154,8 @@ const BillsPage = {
                         <select name="class_id" id="bill-class-select" required>${classOptions(classes)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BillsPage.newClass('bill-class-select')">+ New class</a></div>
                     <div class="form-group"><label>Vendor *</label>
-                        <select name="vendor_id" required onchange="BillsPage.vendorSelected(this.value)"><option value="">Select...</option>${vendorOpts}</select></div>
+                        <select name="vendor_id" id="bill-vendor-select" required onchange="BillsPage.vendorSelected(this.value)"><option value="">Select...</option>${vendorOpts}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BillsPage.newVendor()">+ New vendor</a></div>
                     <div class="form-group"><label>Bill Number *</label>
                         <input name="bill_number" required></div>
                     <div class="form-group"><label>Date *</label>
@@ -185,6 +186,7 @@ const BillsPage = {
                     </tbody>
                 </table>
                 <button type="button" class="btn btn-sm btn-secondary" style="margin-top:8px;" onclick="BillsPage.addLine()">+ Add Line</button>
+                <a href="#" style="font-size:11px; margin-left:12px;" onclick="event.preventDefault(); BillsPage.newItem()">+ New item</a>
                 <div class="form-group" style="margin-top:12px;"><label>Notes</label>
                     <textarea name="notes"></textarea></div>
                 <div class="form-actions">
@@ -243,10 +245,41 @@ const BillsPage = {
         });
     },
 
+    newVendor() {
+        InlineCreate.open('vendor', async (created) => {
+            const fresh = await API.get('/vendors?active_only=true');
+            BillsPage._vendors = fresh;
+            const sel = $('#bill-vendor-select');
+            if (sel) {
+                const opts = fresh.map(v =>
+                    `<option value="${v.id}"${v.id == created.id ? ' selected' : ''}>${escapeHtml(v.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">Select...</option>${opts}`;
+                sel.value = String(created.id);
+            }
+        });
+    },
+
+    newItem() {
+        InlineCreate.open('item', async (created) => {
+            const fresh = await API.get('/items?active_only=true');
+            BillsPage._items = fresh;
+            $$('#bill-lines tr').forEach(row => {
+                const sel = row.querySelector('.line-item');
+                if (!sel) return;
+                const current = sel.value;
+                const opts = fresh.map(i =>
+                    `<option value="${i.id}"${i.id == current ? ' selected' : ''}>${escapeHtml(i.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">--</option>${opts}`;
+            });
+        });
+    },
+
     async save(e) {
         e.preventDefault();
         const form = e.target;
-        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
+        if (!requireClassPicked(form)) return;
         const lines = [];
         $$('#bill-lines tr').forEach((row, i) => {
             lines.push({
@@ -400,7 +433,7 @@ const BillsPage = {
     async savePay(e) {
         e.preventDefault();
         const form = e.target;
-        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
+        if (!requireClassPicked(form)) return;
         const payCcy = (form.currency.value || 'USD').toUpperCase();
         const allocations = [];
         let total = 0;

@@ -77,7 +77,8 @@ const RecurringPage = {
                         <select name="class_id" id="rec-class-select" required>${classOptions(classes, rec.class_id)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); RecurringPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
-                        <select name="customer_id" required onchange="RecurringPage.customerSelected(this.value)"><option value="">Select...</option>${custOpts}</select></div>
+                        <select name="customer_id" id="rec-customer-select" required onchange="RecurringPage.customerSelected(this.value)"><option value="">Select...</option>${custOpts}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); RecurringPage.newCustomer()">+ New customer</a></div>
                     <div class="form-group"><label>Frequency *</label>
                         <select name="frequency">
                             ${['weekly','monthly','quarterly','yearly'].map(f =>
@@ -111,6 +112,7 @@ const RecurringPage = {
                     </tbody>
                 </table>
                 <button type="button" class="btn btn-sm btn-secondary" style="margin-top:8px;" onclick="RecurringPage.addLine()">+ Add Line</button>
+                <a href="#" style="font-size:11px; margin-left:12px;" onclick="event.preventDefault(); RecurringPage.newItem()">+ New item</a>
                 <div class="form-group" style="margin-top:12px;"><label>Notes</label>
                     <textarea name="notes">${escapeHtml(rec.notes || '')}</textarea></div>
                 <div class="form-actions">
@@ -154,7 +156,7 @@ const RecurringPage = {
                 line_order: i,
             });
         });
-        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
+        if (!requireClassPicked(form)) return;
         const data = {
             customer_id: parseInt(form.customer_id.value),
             frequency: form.frequency.value,
@@ -180,6 +182,37 @@ const RecurringPage = {
             RecurringPage._classes = fresh;
             const sel = $('#rec-class-select');
             if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
+    },
+
+    newCustomer() {
+        InlineCreate.open('customer', async (created) => {
+            const fresh = await API.get('/customers?active_only=true');
+            RecurringPage._customers = fresh;
+            const sel = $('#rec-customer-select');
+            if (sel) {
+                const opts = fresh.map(c =>
+                    `<option value="${c.id}"${c.id == created.id ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">Select...</option>${opts}`;
+                sel.value = String(created.id);
+            }
+        });
+    },
+
+    newItem() {
+        InlineCreate.open('item', async (created) => {
+            const fresh = await API.get('/items?active_only=true');
+            RecurringPage._items = fresh;
+            $$('#rec-lines tr').forEach(row => {
+                const sel = row.querySelector('.line-item');
+                if (!sel) return;
+                const current = sel.value;
+                const opts = fresh.map(i =>
+                    `<option value="${i.id}"${i.id == current ? ' selected' : ''}>${escapeHtml(i.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">--</option>${opts}`;
+            });
         });
     },
 

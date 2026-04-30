@@ -166,7 +166,7 @@ const JournalPage = {
     async save(e) {
         e.preventDefault();
         const form = e.target;
-        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
+        if (!requireClassPicked(form)) return;
         const lines = [];
         $$('#je-lines tr').forEach(row => {
             const account_id = row.querySelector('.je-account')?.value;

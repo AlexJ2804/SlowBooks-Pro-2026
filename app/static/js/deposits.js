@@ -22,9 +22,11 @@ const DepositsPage = {
                 </div>
             </div>
             <div class="toolbar">
-                <label style="font-size:10px;font-weight:700;">Class *:</label>
-                <select id="deposit-class">${classOptions(classes)}</select>
-                <a href="#" style="font-size:10px;" onclick="event.preventDefault(); DepositsPage.newClass()">+ New</a>
+                <span class="form-group" style="display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                    <label style="font-size:10px;font-weight:700;">Class *:</label>
+                    <select id="deposit-class">${classOptions(classes)}</select>
+                    <a href="#" style="font-size:10px;" onclick="event.preventDefault(); DepositsPage.newClass()">+ New</a>
+                </span>
                 <label style="font-size:10px;font-weight:700;">Deposit To:</label>
                 <select id="deposit-bank-acct">${bankOpts.length ? bankOpts : '<option>No bank accounts</option>'}</select>
                 <label style="font-size:10px;font-weight:700;">Date:</label>
@@ -95,8 +97,14 @@ const DepositsPage = {
 
         const bankAcctId = $('#deposit-bank-acct')?.value;
         if (!bankAcctId) { toast('Select a bank account', 'error'); return; }
-        const classId = $('#deposit-class')?.value;
-        if (!classId) { toast('Pick a class before saving.', 'error'); return; }
+        const classSel = $('#deposit-class');
+        const classId = classSel?.value;
+        if (!classId) {
+            markFieldError(classSel, 'Class is required — please select one');
+            toast('Pick a class before saving.', 'error');
+            return;
+        }
+        markFieldError(classSel, null);
 
         try {
             await API.post('/deposits', {

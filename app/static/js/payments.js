@@ -239,7 +239,7 @@ const PaymentsPage = {
     async save(e) {
         e.preventDefault();
         const form = e.target;
-        if (!form.class_id.value) { toast('Pick a class before saving.', 'error'); return; }
+        if (!requireClassPicked(form)) return;
         const payCcy = (form.currency.value || 'USD').toUpperCase();
         const allocations = [];
         let mismatch = null;
