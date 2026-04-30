@@ -247,7 +247,7 @@ const InvoicesPage = {
             <form id="invoice-form" onsubmit="InvoicesPage.save(event, ${id})">
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
-                        <select name="class_id" id="inv-class-select" required>${classOptions(classes, inv.class_id)}</select>
+                        <select name="class_id" id="inv-class-select" aria-required="true">${classOptions(classes, inv.class_id)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); InvoicesPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" id="inv-customer-select" required onchange="InvoicesPage.customerSelected(this.value)"><option value="">Select...</option>${custOpts}</select>

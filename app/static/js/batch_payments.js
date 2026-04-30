@@ -29,7 +29,7 @@ const BatchPaymentsPage = {
             <form onsubmit="BatchPaymentsPage.save(event)">
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
-                        <select name="class_id" id="bp-class-select" required>${classOptions(classes)}</select>
+                        <select name="class_id" id="bp-class-select" aria-required="true">${classOptions(classes)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BatchPaymentsPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Payment Date *</label>
                         <input name="date" type="date" required value="${todayISO()}"></div>

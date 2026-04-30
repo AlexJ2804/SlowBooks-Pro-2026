@@ -15,3 +15,6 @@ build/
 .pytest_cache/
 # User-uploaded attachments / logos — runtime data, not source
 app/static/uploads/
+# Scoped node_modules for the jsdom-based DOM test suite
+tests/dom/node_modules/
+tests/dom/package-lock.json

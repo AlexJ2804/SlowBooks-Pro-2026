@@ -95,8 +95,14 @@ function markFieldError(field, message) {
 // Convenience wrapper for the universal "class is required" pre-flight.
 // Returns true if the form's class_id field is filled in (and clears any
 // stale error); returns false and shows the inline error otherwise.
+//
+// We resolve the field via querySelector rather than form.class_id, because
+// the HTMLFormElement named-control accessor isn't implemented in some test
+// runtimes (notably jsdom) — and it's also fragile if the field name ever
+// collides with a Form prototype property. querySelector is unambiguous.
 function requireClassPicked(form) {
-    const field = form && form.class_id;
+    if (!form) return true;
+    const field = form.querySelector('[name="class_id"]');
     if (!field) return true;  // form has no class field — caller's responsibility
     if (!field.value) {
         markFieldError(field, 'Class is required — please select one');

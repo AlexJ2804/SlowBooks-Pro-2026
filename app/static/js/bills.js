@@ -151,7 +151,7 @@ const BillsPage = {
             <form onsubmit="BillsPage.save(event)">
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
-                        <select name="class_id" id="bill-class-select" required>${classOptions(classes)}</select>
+                        <select name="class_id" id="bill-class-select" aria-required="true">${classOptions(classes)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BillsPage.newClass('bill-class-select')">+ New class</a></div>
                     <div class="form-group"><label>Vendor *</label>
                         <select name="vendor_id" id="bill-vendor-select" required onchange="BillsPage.vendorSelected(this.value)"><option value="">Select...</option>${vendorOpts}</select>
@@ -361,7 +361,7 @@ const BillsPage = {
                 </div>
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
-                        <select name="class_id" id="billpay-class-select" required>${classOptions(classes)}</select>
+                        <select name="class_id" id="billpay-class-select" aria-required="true">${classOptions(classes)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BillsPage.newClass('billpay-class-select')">+ New class</a></div>
                     <div class="form-group"><label>Pay From Account</label>
                         <select name="pay_from_account_id"><option value="">Select...</option>${acctOpts}</select></div>

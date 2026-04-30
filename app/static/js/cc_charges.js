@@ -56,7 +56,7 @@ const CCChargesPage = {
             <form onsubmit="CCChargesPage.save(event)">
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
-                        <select name="class_id" id="cc-class-select" required>${classOptions(classes)}</select>
+                        <select name="class_id" id="cc-class-select" aria-required="true">${classOptions(classes)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); CCChargesPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Date *</label>
                         <input name="date" type="date" required value="${todayISO()}"></div>

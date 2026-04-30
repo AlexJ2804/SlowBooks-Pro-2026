@@ -151,7 +151,7 @@ const EstimatesPage = {
             <form id="est-form" onsubmit="EstimatesPage.save(event, ${id})">
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
-                        <select name="class_id" id="est-class-select" required>${classOptions(classes, est.class_id)}</select>
+                        <select name="class_id" id="est-class-select" aria-required="true">${classOptions(classes, est.class_id)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); EstimatesPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" id="est-customer-select" required><option value="">Select...</option>${custOpts}</select>

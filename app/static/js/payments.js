@@ -128,7 +128,7 @@ const PaymentsPage = {
                 </div>
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
-                        <select name="class_id" id="payment-class-select" required>${classOptions(classes)}</select>
+                        <select name="class_id" id="payment-class-select" aria-required="true">${classOptions(classes)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); PaymentsPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" required onchange="PaymentsPage.loadInvoices(this.value)">

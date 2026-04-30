@@ -74,7 +74,7 @@ const RecurringPage = {
             <form onsubmit="RecurringPage.save(event, ${id})">
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
-                        <select name="class_id" id="rec-class-select" required>${classOptions(classes, rec.class_id)}</select>
+                        <select name="class_id" id="rec-class-select" aria-required="true">${classOptions(classes, rec.class_id)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); RecurringPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" id="rec-customer-select" required onchange="RecurringPage.customerSelected(this.value)"><option value="">Select...</option>${custOpts}</select>

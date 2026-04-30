@@ -56,7 +56,7 @@ const CreditMemosPage = {
             <form onsubmit="CreditMemosPage.save(event)">
                 <div class="form-grid">
                     <div class="form-group"><label>Class *</label>
-                        <select name="class_id" id="cm-class-select" required>${classOptions(classes)}</select>
+                        <select name="class_id" id="cm-class-select" aria-required="true">${classOptions(classes)}</select>
                         <a href="#" style="font-size:11px;" onclick="event.preventDefault(); CreditMemosPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" id="cm-customer-select" required><option value="">Select...</option>${custOpts}</select>
