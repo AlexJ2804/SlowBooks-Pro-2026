@@ -424,13 +424,28 @@ def parse_receipt(file_bytes: bytes, mime_type: str, settings: dict) -> dict:
     # path naturally excludes itself), and only when total is null but
     # the parse otherwise succeeded.
     is_visual_input = mime_type in ("image/jpeg", "image/png", "image/webp", "application/pdf")
-    if (
+    should_retry = (
         is_visual_input
         and parsed is not None
         and parsed.get("total") is None
         and primary_model != _RETRY_MODEL
-    ):
-        logger.info(
+    )
+
+    # WARNING level (not INFO) because the app has no root-logger config
+    # and uvicorn's default doesn't elevate non-uvicorn loggers to INFO.
+    # Without this, retry diagnostics are invisible in production logs.
+    # See diagnostic gap that motivated this change: retry fired/skipped
+    # without anyone able to tell which from logs alone.
+    logger.warning(
+        "receipt_parser.retry_gate: mime_type=%r is_visual=%s parsed_not_none=%s "
+        "total_is_none=%s primary_model=%r != retry_model=%r -> should_retry=%s",
+        mime_type, is_visual_input, parsed is not None,
+        (parsed is not None and parsed.get("total") is None),
+        primary_model, _RETRY_MODEL, should_retry,
+    )
+
+    if should_retry:
+        logger.warning(
             "receipt_parser: retrying with %s after %s returned null total",
             _RETRY_MODEL, primary_model,
         )
@@ -442,13 +457,13 @@ def parse_receipt(file_bytes: bytes, mime_type: str, settings: dict) -> dict:
         # result so a transient Sonnet failure doesn't lose Haiku's
         # partial parse.
         if retry_error is None and retry_parsed is not None:
-            logger.info(
-                "receipt_parser: %s retry result has_total=%s",
+            logger.warning(
+                "receipt_parser: %s retry succeeded; has_total=%s",
                 _RETRY_MODEL, retry_parsed.get("total") is not None,
             )
             parsed = retry_parsed
         else:
-            logger.info(
+            logger.warning(
                 "receipt_parser: %s retry failed (%s); keeping primary result",
                 _RETRY_MODEL, retry_error or "no parsed data",
             )

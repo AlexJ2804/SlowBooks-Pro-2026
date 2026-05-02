@@ -132,6 +132,69 @@ def test_parse_success_returns_token_and_increments_counter(client):
     assert settings.get(key) == "1"
 
 
+def test_parse_route_triggers_sonnet_retry_when_total_is_null(client):
+    """Integration pin for the production failure case (May 2026):
+    a Gmail-rendered Apple Store PDF where Haiku returns parsed-but-
+    null-total. The route must drive the retry through to Sonnet 4.6
+    and surface Sonnet's total in the response.
+
+    This catches an entire class of regressions where the unit test
+    passes but route-level integration breaks (settings plumbing,
+    mime_type munging by FastAPI's UploadFile, etc.).
+    """
+    _enable_parser(client)
+    haiku_response = {
+        "vendor_name": "Apple Store",
+        "date": "2026-04-30",
+        "currency": None,
+        "order_number": "W1591651266",
+        "subtotal": None, "tax": None, "total": None,
+        "line_items": [],
+        "suggested_expense_account_keywords": ["equipment"],
+    }
+    sonnet_response = {
+        "vendor_name": "Apple Store",
+        "date": "2026-04-30",
+        "currency": "USD",
+        "order_number": "W1591651266",
+        "subtotal": 499.00, "tax": 45.93, "total": 544.93,
+        "line_items": [{"description": "iPad", "quantity": 1, "rate": 499.00, "amount": 499.00}],
+        "suggested_expense_account_keywords": ["equipment"],
+    }
+
+    captured_models = []
+
+    def fake_urlopen(req, timeout=None):
+        captured_models.append(json.loads(req.data.decode("utf-8"))["model"])
+        if len(captured_models) == 1:
+            return _mock_response(_anthropic_envelope(haiku_response))
+        return _mock_response(_anthropic_envelope(sonnet_response))
+
+    with mock.patch(
+        "app.services.receipt_parser.urllib.request.urlopen",
+        side_effect=fake_urlopen,
+    ):
+        r = client.post(
+            "/api/receipts/parse",
+            files={"file": ("apple.pdf", b"%PDF-1.4\n" + b"x" * 200, "application/pdf")},
+        )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["error"] is None
+    # Both calls fired — this is the predicate-evaluates-True path.
+    assert len(captured_models) == 2, (
+        f"expected 2 Anthropic calls (Haiku then Sonnet retry), got {len(captured_models)}: "
+        f"{captured_models}. If this is 1, the retry predicate evaluated False on the route path "
+        f"despite evaluating True at the unit-test level."
+    )
+    assert captured_models[0] == "claude-haiku-4-5-20251001"
+    assert captured_models[1] == "claude-sonnet-4-6"
+    # Sonnet's total surfaced through the route boundary.
+    assert body["parsed"]["total"] == 544.93
+    assert body["parsed"]["currency"] == "USD"
+
+
 def test_parse_failure_does_not_increment_counter(client):
     _enable_parser(client)
     # API returns 401 → parser surfaces error, route returns 200 with error
