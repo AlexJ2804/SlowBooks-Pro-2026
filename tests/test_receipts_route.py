@@ -195,6 +195,78 @@ def test_parse_route_triggers_sonnet_retry_when_total_is_null(client):
     assert body["parsed"]["currency"] == "USD"
 
 
+def test_parse_route_handles_sonnet_response_with_prose_commentary(client):
+    """Production failure case (May 2026): Sonnet 4.6 retry succeeded
+    at the API level but returned its JSON wrapped in prose ("Looking at
+    this receipt, ... {JSON} ... Let me know if you need anything!").
+    The original parser rejected that as malformed JSON, silently fell
+    back to Haiku's null-total result, and the user saw total=null in
+    the UI despite a perfectly successful Sonnet call.
+
+    Pin the fix at the route layer so a future regression in the JSON
+    extractor surfaces immediately rather than via a customer report."""
+    _enable_parser(client)
+
+    haiku_response_text = json.dumps({
+        "vendor_name": "Apple Store",
+        "date": "2026-04-30",
+        "currency": None,
+        "order_number": "W1591651266",
+        "subtotal": None, "tax": None, "total": None,
+        "line_items": [],
+        "suggested_expense_account_keywords": ["equipment"],
+    })
+    sonnet_inner_payload = {
+        "vendor_name": "Apple Store",
+        "date": "2026-04-30",
+        "currency": "USD",
+        "order_number": "W1591651266",
+        "subtotal": 499.00, "tax": 45.93, "total": 544.93,
+        "line_items": [{"description": "iPad", "quantity": 1, "rate": 499.00, "amount": 499.00}],
+        "suggested_expense_account_keywords": ["equipment"],
+    }
+    sonnet_response_text = (
+        "Looking at this Apple Store receipt, here's what I extracted:\n\n"
+        + json.dumps(sonnet_inner_payload)
+        + "\n\nThe order total is $544.93 USD. Let me know if you need any clarification."
+    )
+
+    def _envelope(text: str) -> str:
+        return json.dumps({
+            "content": [{"type": "text", "text": text}],
+            "model": "claude-sonnet-4-6",
+            "role": "assistant",
+            "stop_reason": "end_turn",
+        })
+
+    call_idx = [0]
+
+    def fake_urlopen(req, timeout=None):
+        call_idx[0] += 1
+        if call_idx[0] == 1:
+            return _mock_response(_envelope(haiku_response_text))
+        return _mock_response(_envelope(sonnet_response_text))
+
+    with mock.patch(
+        "app.services.receipt_parser.urllib.request.urlopen",
+        side_effect=fake_urlopen,
+    ):
+        r = client.post(
+            "/api/receipts/parse",
+            files={"file": ("apple.pdf", b"%PDF-1.4\n" + b"x" * 200, "application/pdf")},
+        )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["error"] is None
+    assert call_idx[0] == 2, "expected Haiku then Sonnet retry"
+    # Sonnet's prose-wrapped JSON was successfully extracted and
+    # surfaced through the route boundary — the bug we're pinning.
+    assert body["parsed"]["total"] == 544.93
+    assert body["parsed"]["currency"] == "USD"
+    assert body["parsed"]["vendor_name"] == "Apple Store"
+
+
 def test_parse_failure_does_not_increment_counter(client):
     _enable_parser(client)
     # API returns 401 → parser surfaces error, route returns 200 with error

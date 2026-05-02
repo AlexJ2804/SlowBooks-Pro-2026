@@ -127,7 +127,14 @@ Rules:
 - If the image is not a receipt or invoice, return all fields as null
   and an empty line_items array.
 
-Return only the JSON object, nothing else.
+Output format — STRICT:
+- Output the JSON object as the very first character of your response.
+- The first character must be `{` and the last character must be `}`.
+- Do not include any text before or after the JSON object.
+- Do not explain your reasoning, do not say "Here is the data" or
+  "Looking at this receipt", and do not summarise after the JSON.
+- Do not wrap the JSON in markdown fences (no ``` or ```json).
+- Stop immediately after the closing `}`.
 """
 
 
@@ -365,16 +372,34 @@ def _call_anthropic(
         return None, "Anthropic response missing text content"
     text = text_block.get("text") or ""
 
-    # Strip any stray markdown fences in case the model added them despite
-    # being told not to.
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
+    # Extract the JSON object from the model's text. Sonnet 4.6 in
+    # particular tends to wrap output in prose ("Here is the extracted
+    # data: {...}. Let me know if..."), so we can't trust the response
+    # to be pure JSON even with a strict system prompt. Greedy DOTALL
+    # match grabs from the first `{` to the last `}` — works for our
+    # case where exactly one JSON object is expected, regardless of
+    # whether it's wrapped in markdown fences, prose, or both.
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match is None:
+        # DIAGNOSTIC EXCEPTION: the file-level privacy doc says we
+        # don't log model output, but parse failures are rare and
+        # essentially undebuggable without the raw text. Truncate to
+        # 500 chars to limit blast radius.
+        logger.warning(
+            "receipt_parser: model output contains no JSON object; "
+            "first 500 chars: %r",
+            (text or "")[:500],
+        )
+        return None, "Model returned malformed JSON"
 
     try:
-        parsed_raw = json.loads(text)
+        parsed_raw = json.loads(match.group(0))
     except json.JSONDecodeError:
+        logger.warning(
+            "receipt_parser: failed to parse JSON from model output; "
+            "first 500 chars of raw text: %r",
+            (text or "")[:500],
+        )
         return None, "Model returned malformed JSON"
 
     return _sanitize_parsed(parsed_raw), None

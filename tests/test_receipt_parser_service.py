@@ -95,6 +95,80 @@ def test_parse_strips_markdown_fences_around_json():
     assert result["parsed"]["vendor_name"] == "Test"
 
 
+def test_parse_extracts_json_from_prose_commentary():
+    """Production failure case (May 2026): Sonnet 4.6 returned JSON
+    wrapped in prose like 'Here is the extracted data: {...}. Let me
+    know if you need anything else.' The original parser rejected this
+    as malformed JSON, the retry path silently fell back to Haiku's
+    null-total result. The robust extractor must accept this format."""
+    from app.services import receipt_parser
+    payload = {
+        "vendor_name": "Apple Store",
+        "date": "2026-04-30",
+        "currency": "USD",
+        "total": 544.93, "subtotal": 499.00, "tax": 45.93,
+        "line_items": [{"description": "iPad", "quantity": 1, "rate": 499.00, "amount": 499.00}],
+        "suggested_expense_account_keywords": ["equipment"],
+    }
+    prose_wrapped = (
+        "Looking at this receipt, I can extract the following information:\n\n"
+        + json.dumps(payload)
+        + "\n\nThe total comes to $544.93. Let me know if you need anything else!"
+    )
+    with mock.patch.object(
+        receipt_parser.urllib.request, "urlopen",
+        return_value=_mock_response(_anthropic_envelope(prose_wrapped)),
+    ):
+        result = receipt_parser.parse_receipt(b"fakeimg", "image/jpeg", SETTINGS_OK)
+    assert result["error"] is None, result["error"]
+    assert result["parsed"]["total"] == 544.93
+    assert result["parsed"]["vendor_name"] == "Apple Store"
+
+
+def test_parse_extracts_json_from_fenced_block_with_inline_commentary():
+    """Belt-and-braces: model wraps JSON in ```json fences AND adds
+    explanation text inside the fence. The first `{` to last `}` regex
+    still finds the JSON object."""
+    from app.services import receipt_parser
+    payload = {"vendor_name": "X", "total": 10.0, "date": "2026-04-15",
+               "line_items": [], "suggested_expense_account_keywords": []}
+    text = (
+        "```json\n"
+        "// Here's the parsed receipt data\n"
+        + json.dumps(payload)
+        + "\n// (totals look reasonable)\n"
+        "```"
+    )
+    with mock.patch.object(
+        receipt_parser.urllib.request, "urlopen",
+        return_value=_mock_response(_anthropic_envelope(text)),
+    ):
+        result = receipt_parser.parse_receipt(b"img", "image/jpeg", SETTINGS_OK)
+    assert result["error"] is None
+    assert result["parsed"]["total"] == 10.0
+
+
+def test_parse_logs_raw_text_when_no_json_object_present(caplog):
+    """When the model output has no `{...}` at all, log the raw text
+    (truncated) so we can debug what went wrong. This is a deliberate
+    diagnostic exception to the file-level no-content-logging rule."""
+    import logging
+    from app.services import receipt_parser
+    junk = "I cannot parse this receipt. Please try a clearer image."
+    with caplog.at_level(logging.WARNING, logger="app.services.receipt_parser"):
+        with mock.patch.object(
+            receipt_parser.urllib.request, "urlopen",
+            return_value=_mock_response(_anthropic_envelope(junk)),
+        ):
+            result = receipt_parser.parse_receipt(b"img", "image/jpeg", SETTINGS_OK)
+    assert result["parsed"] is None
+    assert "malformed" in result["error"].lower()
+    msgs = [r.getMessage() for r in caplog.records if r.name == "app.services.receipt_parser"]
+    # The raw text should appear in some warning record so a future
+    # debugger can see exactly what the model returned.
+    assert any("I cannot parse this receipt" in m for m in msgs), msgs
+
+
 def test_parse_drops_unexpected_top_level_fields():
     """Privacy guard: even if the model sneaks in a card_number key, we drop it.
     Pins the spec rule that downstream callers only see the expected schema."""
