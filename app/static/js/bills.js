@@ -217,7 +217,7 @@ const BillsPage = {
                           </div>` : ''}
                     </div>
                     <div class="form-group"><label>Bill Number *</label>
-                        <input name="bill_number" required></div>
+                        <input name="bill_number" required value="${escapeHtml((prefill && prefill.bill_number) || '')}"></div>
                     <div class="form-group"><label>Date *</label>
                         <input name="date" type="date" required value="${dateValue}"></div>
                     <div class="form-group"><label>Terms</label>
@@ -301,7 +301,10 @@ const BillsPage = {
         const submitBtn = $('#receipt-parse-submit');
         const status = $('#receipt-parse-status');
         if (submitBtn) submitBtn.disabled = true;
-        if (status) status.textContent = 'Reading your receipt… (up to 30 seconds)';
+        // The backend may retry once with Sonnet when the primary model
+        // can't extract a total — that pushes worst-case end-to-end to
+        // ~60s on dense receipts. Copy reflects worst case.
+        if (status) status.textContent = 'Reading your receipt… (up to a minute)';
 
         const fd = new FormData();
         fd.append('file', file);
@@ -405,6 +408,12 @@ const BillsPage = {
             vendor_name_for_inline_create,
             date: parsed.date || null,
             currency: parsed.currency || null,
+            // Parser returns `order_number`; the SlowBooks form input
+            // is named `bill_number`. The naming difference is
+            // deliberate — "order number" generalises across vendor
+            // types (utilities call it Account Number, airlines call
+            // it Confirmation Number). We map at this boundary.
+            bill_number: parsed.order_number || null,
             lines,
             suggested_account_id,
             attachment_token: payload.attachment_token,

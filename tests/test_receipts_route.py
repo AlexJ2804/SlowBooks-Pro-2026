@@ -100,6 +100,7 @@ def test_parse_success_returns_token_and_increments_counter(client):
         "vendor_name": "Pret A Manger",
         "date": "2026-04-15",
         "currency": "GBP",
+        "order_number": "ORD-2026-04-15-0042",
         "subtotal": 8.5, "tax": 0.42, "total": 8.92,
         "line_items": [{"description": "Sandwich", "quantity": 1, "rate": 5.5, "amount": 5.5}],
         "suggested_expense_account_keywords": ["meals"],
@@ -116,6 +117,11 @@ def test_parse_success_returns_token_and_increments_counter(client):
     body = r.json()
     assert body["error"] is None
     assert body["parsed"]["vendor_name"] == "Pret A Manger"
+    # order_number must pass through the route boundary verbatim — the
+    # frontend reads this field and maps it to the bill_number form
+    # input. If this assertion fails, the upload-receipt → bill flow
+    # leaves Bill Number blank again (the bug that motivated phase-4-fix).
+    assert body["parsed"]["order_number"] == "ORD-2026-04-15-0042"
     assert body["attachment_token"]
     assert body["filename"] == "r.jpg"
 
