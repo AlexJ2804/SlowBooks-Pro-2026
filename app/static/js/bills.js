@@ -3,12 +3,46 @@
  * Feature 1: Enter bills, pay bills
  */
 const BillsPage = {
+    // Default sort matches QB's "newest bill first" expectation. Columns
+    // that aren't naturally chronological default to ascending on first
+    // click; clicking the active column again toggles direction.
+    _sortColumn: 'date',
+    _sortDirection: 'desc',
+    _bills: [],
+    _homeCurrencyForList: 'USD',
+
+    // Each comparator returns the asc-direction order. _sortBills() flips
+    // the sign for desc. Numeric columns coerce via parseFloat; missing
+    // values sort as 0 / empty string so a sparse row doesn't crash sort.
+    _comparators: {
+        bill_number: (a, b) => String(a.bill_number || '').localeCompare(String(b.bill_number || '')),
+        vendor:      (a, b) => (a.vendor_name || '').toLowerCase().localeCompare((b.vendor_name || '').toLowerCase()),
+        date:        (a, b) => String(a.date || '').localeCompare(String(b.date || '')),
+        due_date:    (a, b) => String(a.due_date || '').localeCompare(String(b.due_date || '')),
+        status:      (a, b) => String(a.status || '').localeCompare(String(b.status || '')),
+        total:       (a, b) => (parseFloat(a.total) || 0) - (parseFloat(b.total) || 0),
+        total_home:  (a, b) => (parseFloat(a.home_currency_amount) || 0) - (parseFloat(b.home_currency_amount) || 0),
+        balance:     (a, b) => (parseFloat(a.balance_due) || 0) - (parseFloat(b.balance_due) || 0),
+    },
+
+    _sortBills(bills, column, direction) {
+        const cmp = BillsPage._comparators[column];
+        if (!cmp) return bills.slice();
+        const sign = direction === 'desc' ? -1 : 1;
+        return bills.slice().sort((a, b) => sign * cmp(a, b));
+    },
+
     async render() {
         const [bills, settings] = await Promise.all([
             API.get('/bills'),
             API.get('/settings'),
         ]);
         const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
+        BillsPage._bills = bills;
+        BillsPage._homeCurrencyForList = homeCurrency;
+        // Reset sort to default on each navigation to /#/bills.
+        BillsPage._sortColumn = 'date';
+        BillsPage._sortDirection = 'desc';
 
         const receiptParserOn = settings.receipt_parser_enabled === 'true';
         const uploadBtn = receiptParserOn
@@ -36,31 +70,71 @@ const BillsPage = {
         if (bills.length === 0) {
             html += '<div class="empty-state"><p>No bills entered yet</p></div>';
         } else {
-            html += `<div class="table-container"><table>
-                <thead><tr><th>Bill #</th><th>Vendor</th><th>Date</th><th>Due</th><th>Status</th>
-                <th class="amount">Total</th>
-                <th class="amount">Total (${escapeHtml(homeCurrency)})</th>
-                <th class="amount">Balance</th><th>Actions</th></tr></thead><tbody id="bill-tbody">`;
-            for (const b of bills) {
-                const ccy = (b.currency || 'USD').toUpperCase();
-                html += `<tr class="bill-row" data-status="${b.status}">
-                    <td><strong>${escapeHtml(b.bill_number)}</strong></td>
-                    <td>${escapeHtml(b.vendor_name || '')}</td>
-                    <td>${formatDate(b.date)}</td>
-                    <td>${formatDate(b.due_date)}</td>
-                    <td>${statusBadge(b.status)}</td>
-                    <td class="amount">${formatCurrency(b.total, ccy)}</td>
-                    <td class="amount">${formatCurrency(b.home_currency_amount, homeCurrency)}</td>
-                    <td class="amount">${formatCurrency(b.balance_due, ccy)}</td>
-                    <td class="actions">
-                        <button class="btn btn-sm btn-secondary" onclick="BillsPage.view(${b.id})">View</button>
-                        ${b.status !== 'void' && b.status !== 'paid' ? `<button class="btn btn-sm btn-danger" onclick="BillsPage.void(${b.id})">Void</button>` : ''}
-                    </td>
-                </tr>`;
-            }
-            html += '</tbody></table></div>';
+            html += `<div id="bills-table-wrap">${BillsPage._buildTableHtml()}</div>`;
         }
         return html;
+    },
+
+    _buildTableHtml() {
+        const homeCurrency = BillsPage._homeCurrencyForList;
+        const sorted = BillsPage._sortBills(BillsPage._bills, BillsPage._sortColumn, BillsPage._sortDirection);
+        const arrow = (col) => BillsPage._sortColumn === col
+            ? ` <span class="sort-arrow">${BillsPage._sortDirection === 'asc' ? '▲' : '▼'}</span>`
+            : '';
+        const thCls = (col, extra) => {
+            const parts = ['sortable'];
+            if (extra) parts.push(extra);
+            if (BillsPage._sortColumn === col) parts.push('sort-active');
+            return parts.join(' ');
+        };
+        let html = `<div class="table-container"><table>
+            <thead><tr>
+                <th class="${thCls('bill_number')}" onclick="BillsPage.sortBy('bill_number')">Bill #${arrow('bill_number')}</th>
+                <th class="${thCls('vendor')}" onclick="BillsPage.sortBy('vendor')">Vendor${arrow('vendor')}</th>
+                <th class="${thCls('date')}" onclick="BillsPage.sortBy('date')">Date${arrow('date')}</th>
+                <th class="${thCls('due_date')}" onclick="BillsPage.sortBy('due_date')">Due${arrow('due_date')}</th>
+                <th class="${thCls('status')}" onclick="BillsPage.sortBy('status')">Status${arrow('status')}</th>
+                <th class="${thCls('total', 'amount')}" onclick="BillsPage.sortBy('total')">Total${arrow('total')}</th>
+                <th class="${thCls('total_home', 'amount')}" onclick="BillsPage.sortBy('total_home')">Total (${escapeHtml(homeCurrency)})${arrow('total_home')}</th>
+                <th class="${thCls('balance', 'amount')}" onclick="BillsPage.sortBy('balance')">Balance${arrow('balance')}</th>
+                <th>Actions</th>
+            </tr></thead><tbody id="bill-tbody">`;
+        for (const b of sorted) {
+            const ccy = (b.currency || 'USD').toUpperCase();
+            html += `<tr class="bill-row" data-status="${b.status}">
+                <td><strong>${escapeHtml(b.bill_number)}</strong></td>
+                <td>${escapeHtml(b.vendor_name || '')}</td>
+                <td>${formatDate(b.date)}</td>
+                <td>${formatDate(b.due_date)}</td>
+                <td>${statusBadge(b.status)}</td>
+                <td class="amount">${formatCurrency(b.total, ccy)}</td>
+                <td class="amount">${formatCurrency(b.home_currency_amount, homeCurrency)}</td>
+                <td class="amount">${formatCurrency(b.balance_due, ccy)}</td>
+                <td class="actions">
+                    <button class="btn btn-sm btn-secondary" onclick="BillsPage.view(${b.id})">View</button>
+                    ${b.status !== 'void' && b.status !== 'paid' ? `<button class="btn btn-sm btn-danger" onclick="BillsPage.void(${b.id})">Void</button>` : ''}
+                </td>
+            </tr>`;
+        }
+        html += '</tbody></table></div>';
+        return html;
+    },
+
+    sortBy(column) {
+        if (!BillsPage._comparators[column]) return;
+        if (BillsPage._sortColumn === column) {
+            BillsPage._sortDirection = BillsPage._sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            BillsPage._sortColumn = column;
+            // Date-like columns feel more natural newest-first on first click;
+            // everything else (text, money) defaults to ascending.
+            BillsPage._sortDirection = (column === 'date' || column === 'due_date') ? 'desc' : 'asc';
+        }
+        const wrap = document.getElementById('bills-table-wrap');
+        if (wrap) {
+            wrap.innerHTML = BillsPage._buildTableHtml();
+            BillsPage.applyFilter();
+        }
     },
 
     applyFilter() {
