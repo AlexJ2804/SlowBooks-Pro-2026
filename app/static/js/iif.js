@@ -347,6 +347,16 @@ const IIFPage = {
                 </div>`;
             }
         }
+        // Surface dedup hits — when re-running an IIF after a partial
+        // failure, the user wants to see "X already imported" so a
+        // total of zero new records is unambiguous (nothing failed
+        // silently, the rows were already there).
+        if (result.duplicates_skipped > 0) {
+            html += `<div class="result-row">
+                <span>Skipped</span>
+                <span class="result-count">${result.duplicates_skipped} duplicates</span>
+            </div>`;
+        }
         html += '</div>';
 
         if (result.warnings && result.warnings.length) {

@@ -211,6 +211,23 @@ def _find_account(db: Session, name: str) -> Account:
     return None
 
 
+def _find_class(db: Session, name: str):
+    """Strict class lookup by exact then case-insensitive name.
+
+    Returns the Class row or None — callers raise ValueError when None
+    so a missing CLASS surfaces the same way a missing vendor or
+    account does. There is no fuzzy / well-known fallback for classes:
+    they're user-defined labels with no canonical naming convention.
+    """
+    if not name:
+        return None
+    from app.models.classes import Class
+    cls = db.query(Class).filter(Class.name == name).first()
+    if cls:
+        return cls
+    return db.query(Class).filter(Class.name.ilike(name)).first()
+
+
 # ============================================================================
 # Reverse type mappings (IIF -> Slowbooks)
 # ============================================================================
@@ -614,7 +631,11 @@ def import_transactions(db: Session, blocks: list) -> dict:
     Other types (GENERAL JOURNAL, etc.) are silently skipped — extend
     the dispatch table here when adding support.
     """
-    counts = {"invoices": 0, "payments": 0, "estimates": 0, "bills": 0, "deposits": 0}
+    counts = {
+        "invoices": 0, "payments": 0, "estimates": 0,
+        "bills": 0, "deposits": 0,
+        "duplicates_skipped": 0,
+    }
     errors = []
     warnings = []
 
@@ -643,13 +664,22 @@ def import_transactions(db: Session, blocks: list) -> dict:
                 if result:
                     counts["estimates"] += 1
             elif trns_type == "BILL":
+                # _import_bill returns None when the (vendor, bill_number) pair
+                # already exists. That's a deliberate dedup hit — count it
+                # rather than letting it disappear silently like INVOICE/
+                # PAYMENT/ESTIMATE do (those keep their pre-existing
+                # behaviour for backwards compatibility).
                 result = _import_bill(db, trns, spls)
                 if result:
                     counts["bills"] += 1
+                else:
+                    counts["duplicates_skipped"] += 1
             elif trns_type == "DEPOSIT":
                 result = _import_deposit(db, trns, spls)
                 if result:
                     counts["deposits"] += 1
+                else:
+                    counts["duplicates_skipped"] += 1
             # Skip other transaction types (GENERAL JOURNAL, etc.) for now
             sp.commit()
 
@@ -658,6 +688,46 @@ def import_transactions(db: Session, blocks: list) -> dict:
             errors.append({"row": i + 1, "message": f"Transaction block {i + 1}: {str(e)}"})
 
     return {"imported": counts, "errors": errors, "warnings": warnings}
+
+
+def _resolve_block_class(db: Session, trns_type: str, doc_num: str, spls: list) -> int:
+    """Collapse SPL.CLASS values to a single class_id at the entity level.
+
+    Schema reality: neither BillLine nor TransactionLine carry class_id —
+    classes are header-level (Bill.class_id, Transaction.class_id). When
+    the IIF supplies a CLASS column on SPL rows, we therefore have to
+    reconcile it down to one value.
+
+    Rules:
+    - All SPL.CLASS values absent or empty → fall back to Uncategorized.
+    - One distinct CLASS across all SPLs → look it up strictly; ValueError
+      if not found, same posture as missing vendor/account.
+    - Multiple distinct non-empty CLASS values → ValueError. Refusing
+      beats silently dropping classes the user intended to keep separate.
+      If you actually need per-line class assignments, the schema needs
+      class_id on *_lines tables — out of scope for the IIF importer.
+    """
+    raw_names = [spl.get("CLASS", "").strip() for spl in spls]
+    distinct = sorted({n for n in raw_names if n})
+
+    if not distinct:
+        return uncategorized_class_id(db)
+
+    if len(distinct) > 1:
+        raise ValueError(
+            f"{trns_type} {doc_num}: SPL lines reference different CLASS values "
+            f"({distinct}); the schema stores one class per "
+            f"{'bill' if trns_type == 'BILL' else 'deposit'}, not per line."
+        )
+
+    cls_name = distinct[0]
+    cls = _find_class(db, cls_name)
+    if not cls:
+        raise ValueError(
+            f"{trns_type} {doc_num}: class '{cls_name}' not found. "
+            f"Add it under Classes first, or correct the CLASS column in the IIF."
+        )
+    return cls.id
 
 
 def _validate_block_balance(trns_type: str, trns: dict, spls: list) -> Decimal:
@@ -745,11 +815,17 @@ def _import_bill(db: Session, trns: dict, spls: list) -> Bill:
         spl_amount = _parse_decimal(spl.get("AMOUNT", ""))
         spl_resolved.append((spl, spl_acct, spl_amount))
 
+    # SPL.CLASS handling. Schema constraint: Bill.class_id is single,
+    # BillLine has no class_id column. So per-line classes from the IIF
+    # collapse to the entity-level Bill.class_id. If SPLs disagree on
+    # CLASS we refuse rather than silently picking one — surfacing the
+    # conflict is safer for financial data.
+    bill_class_id = _resolve_block_class(db, "BILL", doc_num, spls)
+
     bill_date = _parse_iif_date(trns.get("DATE", "")) or date.today()
     due_date = _parse_iif_date(trns.get("DUEDATE", ""))
     total = abs(trns_amt)
 
-    uncat_id = uncategorized_class_id(db)
     bill = Bill(
         bill_number=doc_num,
         vendor_id=vendor.id,
@@ -763,7 +839,7 @@ def _import_bill(db: Session, trns: dict, spls: list) -> Bill:
         total=total,
         balance_due=total,
         notes=trns.get("MEMO", "").strip() or None,
-        class_id=uncat_id,
+        class_id=bill_class_id,
     )
     db.add(bill)
     db.flush()
@@ -802,7 +878,7 @@ def _import_bill(db: Session, trns: dict, spls: list) -> Bill:
             journal_lines,
             source_type="bill",
             source_id=bill.id,
-            class_id=uncat_id,
+            class_id=bill_class_id,
         )
         bill.transaction_id = txn.id
 
@@ -841,16 +917,28 @@ def _import_deposit(db: Session, trns: dict, spls: list) -> Transaction:
     deposit_date = _parse_iif_date(trns.get("DATE", "")) or date.today()
     total = abs(trns_amt)
 
-    # Idempotent dedup keyed on (date, reference) when DOCNUM is set.
-    # Without a DOCNUM, deposits aren't dedupable (you can legitimately
-    # have two deposits of the same amount on the same day from
-    # different sources), so re-runs without DOCNUM will double-import.
+    # Idempotent dedup keyed on (date, reference, amount) when DOCNUM is
+    # set. Amount is matched against the bank-side debit line on the
+    # existing Transaction so a same-day same-DOCNUM deposit with a
+    # different total imports as a new row rather than false-deduping
+    # against a manual deposit that happens to share the reference.
+    # Without a DOCNUM, deposits aren't dedupable at all (legitimate
+    # duplicate amounts on the same day from different sources), so
+    # re-runs without DOCNUM will double-import.
     if doc_num:
-        existing = db.query(Transaction).filter(
-            Transaction.source_type == "deposit",
-            Transaction.reference == doc_num,
-            Transaction.date == deposit_date,
-        ).first()
+        from app.models.transactions import TransactionLine
+        existing = (
+            db.query(Transaction)
+            .join(TransactionLine, TransactionLine.transaction_id == Transaction.id)
+            .filter(
+                Transaction.source_type == "deposit",
+                Transaction.reference == doc_num,
+                Transaction.date == deposit_date,
+                TransactionLine.account_id == bank_acct.id,
+                TransactionLine.debit == total,
+            )
+            .first()
+        )
         if existing:
             return None
 
@@ -867,6 +955,10 @@ def _import_deposit(db: Session, trns: dict, spls: list) -> Transaction:
             )
         spl_amount = _parse_decimal(spl.get("AMOUNT", ""))
         spl_resolved.append((spl, spl_acct, spl_amount))
+
+    deposit_class_id = _resolve_block_class(
+        db, "DEPOSIT", doc_num or bank_acct_name, spls,
+    )
 
     memo = trns.get("MEMO", "").strip()
     description = memo or f"Deposit to {bank_acct.name}"
@@ -886,14 +978,13 @@ def _import_deposit(db: Session, trns: dict, spls: list) -> Transaction:
             "description": spl_memo or description,
         })
 
-    uncat_id = uncategorized_class_id(db)
     txn = create_journal_entry(
         db, deposit_date,
         f"IIF Import — {description}",
         journal_lines,
         source_type="deposit",
         reference=doc_num or None,
-        class_id=uncat_id,
+        class_id=deposit_class_id,
     )
     db.flush()
     return txn
@@ -1382,6 +1473,7 @@ def import_all(db: Session, content: str) -> dict:
         "estimates": 0,
         "bills": 0,
         "deposits": 0,
+        "duplicates_skipped": 0,
         "errors": [],
         "warnings": [],
     }
@@ -1422,6 +1514,7 @@ def import_all(db: Session, content: str) -> dict:
         result["estimates"] = counts.get("estimates", 0)
         result["bills"] = counts.get("bills", 0)
         result["deposits"] = counts.get("deposits", 0)
+        result["duplicates_skipped"] = counts.get("duplicates_skipped", 0)
         result["errors"].extend(r["errors"])
         result["warnings"].extend(r.get("warnings", []))
 

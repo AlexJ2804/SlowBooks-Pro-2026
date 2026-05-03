@@ -214,23 +214,117 @@ def test_iif_import_bill_unbalanced_block_rejected(db_session, seed_accounts, se
 def test_iif_import_bill_dedupes_on_docnum(db_session, seed_accounts, seed_classes):
     """Same (vendor, bill_number) twice must result in one bill row.
     Idempotent re-runs are required so the user can re-import after
-    fixing earlier failures without double-counting."""
+    fixing earlier failures without double-counting. The duplicates
+    bumped during the second pass surface in counts['duplicates_skipped']
+    so the UI can show 'Skipped 2 duplicates' instead of a confusing
+    silent zero."""
     from app.services.iif_import import parse_iif, import_transactions
     from app.models.bills import Bill
 
     _seed_apple_vendor(db_session)
 
     parsed = parse_iif(BILL_IIF)
-    import_transactions(db_session, parsed["TRNS"])
+    first = import_transactions(db_session, parsed["TRNS"])
     db_session.commit()
+    assert first["imported"]["bills"] == 2
+    assert first["imported"]["duplicates_skipped"] == 0
     assert db_session.query(Bill).count() == 2
 
-    # Re-import the same IIF — no new rows, no errors.
+    # Re-import the same IIF — no new rows, no errors, both blocks
+    # logged as duplicates.
     result = import_transactions(db_session, parsed["TRNS"])
     db_session.commit()
     assert result["imported"]["bills"] == 0
+    assert result["imported"]["duplicates_skipped"] == 2
     assert result["errors"] == []
     assert db_session.query(Bill).count() == 2
+
+
+# ---- CLASS handling on SPL lines -------------------------------------------
+
+# Schema constraint pinned by the BILL CLASS tests below: BillLine has no
+# class_id column, so SPL.CLASS collapses to Bill.class_id at the entity
+# level. If multiple SPLs in a BILL block disagree on CLASS we refuse —
+# silently picking one would be a worse failure mode for financial data.
+
+BILL_WITH_CLASS_IIF = (
+    "!TRNS\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tDOCNUM\n"
+    "!SPL\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tCLASS\n"
+    "!ENDTRNS\n"
+    "TRNS\tBILL\t05/01/2026\tAccounts Payable\tApple Store\t-7.50\tTEST-CLS\n"
+    "SPL\tBILL\t05/01/2026\tOffice Supplies\tApple Store\t7.50\tClass A\n"
+    "ENDTRNS\n"
+)
+
+
+def test_iif_import_bill_with_valid_class_lands_on_bill_class_id(
+    db_session, seed_accounts, seed_classes
+):
+    """SPL.CLASS resolves by name and lands on Bill.class_id (the
+    schema's only place to put it). Same value flows into the journal
+    entry's Transaction.class_id via create_journal_entry."""
+    from app.services.iif_import import parse_iif, import_transactions
+    from app.models.bills import Bill
+    from app.models.transactions import Transaction
+
+    _seed_apple_vendor(db_session)
+    parsed = parse_iif(BILL_WITH_CLASS_IIF)
+    result = import_transactions(db_session, parsed["TRNS"])
+    db_session.commit()
+
+    assert result["imported"]["bills"] == 1, result
+    assert result["errors"] == [], result["errors"]
+    bill = db_session.query(Bill).filter_by(bill_number="TEST-CLS").first()
+    assert bill is not None
+    assert bill.class_id == seed_classes["Class A"].id, (
+        f"expected Class A id={seed_classes['Class A'].id}, got {bill.class_id}"
+    )
+    # The bill's journal entry inherits the same class.
+    txn = db_session.query(Transaction).filter_by(id=bill.transaction_id).first()
+    assert txn.class_id == seed_classes["Class A"].id
+
+
+def test_iif_import_bill_with_unknown_class_returns_error(
+    db_session, seed_accounts, seed_classes
+):
+    """Strict CLASS lookup — same posture as missing vendor or account.
+    Don't auto-create classes; surface the bad name so the user can
+    decide whether to add it or fix the IIF."""
+    from app.services.iif_import import parse_iif, import_transactions
+    from app.models.bills import Bill
+
+    _seed_apple_vendor(db_session)
+    bad_iif = BILL_WITH_CLASS_IIF.replace("Class A", "Phantom Class")
+    parsed = parse_iif(bad_iif)
+    result = import_transactions(db_session, parsed["TRNS"])
+    db_session.commit()
+
+    assert result["imported"]["bills"] == 0
+    assert len(result["errors"]) == 1
+    msg = result["errors"][0]["message"]
+    assert "Phantom Class" in msg
+    assert "class" in msg.lower() and "not found" in msg.lower(), msg
+    assert db_session.query(Bill).count() == 0
+
+
+def test_iif_import_bill_falls_back_to_uncategorized_when_no_class(
+    db_session, seed_accounts, seed_classes
+):
+    """No CLASS column / empty CLASS values keep the existing
+    Uncategorized behaviour — the BILL_IIF used elsewhere in this file
+    has no CLASS column at all and lands on Uncategorized."""
+    from app.services.iif_import import parse_iif, import_transactions
+    from app.models.bills import Bill
+
+    _seed_apple_vendor(db_session)
+    parsed = parse_iif(BILL_IIF)
+    import_transactions(db_session, parsed["TRNS"])
+    db_session.commit()
+
+    bills = db_session.query(Bill).all()
+    assert len(bills) == 2
+    for b in bills:
+        assert b.class_id == seed_classes["Uncategorized"].id
 
 
 # ============================================================================
@@ -295,7 +389,12 @@ def test_iif_import_deposit_missing_account_rejected(db_session, seed_accounts, 
     assert db_session.query(Transaction).filter_by(source_type="deposit").count() == 0
 
 
-def test_iif_import_deposit_dedupes_on_docnum(db_session, seed_accounts, seed_classes):
+def test_iif_import_deposit_dedupes_on_docnum_date_and_amount(
+    db_session, seed_accounts, seed_classes
+):
+    """Same (DOCNUM, date, amount) tuple → second import dedups and
+    bumps duplicates_skipped. Re-imports of unchanged IIF must remain
+    idempotent so the Gmail scraper can safely re-run."""
     from app.services.iif_import import parse_iif, import_transactions
     from app.models.transactions import Transaction
 
@@ -307,7 +406,42 @@ def test_iif_import_deposit_dedupes_on_docnum(db_session, seed_accounts, seed_cl
     result = import_transactions(db_session, parsed["TRNS"])
     db_session.commit()
     assert result["imported"]["deposits"] == 0
+    assert result["imported"]["duplicates_skipped"] == 1
     assert db_session.query(Transaction).filter_by(source_type="deposit").count() == 1
+
+
+def test_iif_import_deposit_does_not_dedupe_when_amount_differs(
+    db_session, seed_accounts, seed_classes
+):
+    """Same DOCNUM + same date but a DIFFERENT amount = not the same
+    deposit. The dedup tuple now includes amount so a corrected re-import
+    (e.g. user fixed a typo and re-ran the scraper) lands as a new row
+    instead of being silently swallowed by the previous wrong-amount
+    record."""
+    from app.services.iif_import import parse_iif, import_transactions
+    from app.models.transactions import Transaction
+
+    parsed = parse_iif(DEPOSIT_IIF)
+    import_transactions(db_session, parsed["TRNS"])
+    db_session.commit()
+    assert db_session.query(Transaction).filter_by(source_type="deposit").count() == 1
+
+    different_amount_iif = (
+        "!TRNS\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tDOCNUM\tMEMO\n"
+        "!SPL\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tMEMO\n"
+        "!ENDTRNS\n"
+        # Same DOCNUM + date as DEPOSIT_IIF, different amount.
+        "TRNS\tDEPOSIT\t05/02/2026\tChecking\t\t99.99\tDEP-001\tCorrected amount\n"
+        "SPL\tDEPOSIT\t05/02/2026\tService Income\t\t-99.99\tCorrected amount\n"
+        "ENDTRNS\n"
+    )
+    parsed2 = parse_iif(different_amount_iif)
+    result = import_transactions(db_session, parsed2["TRNS"])
+    db_session.commit()
+
+    assert result["imported"]["deposits"] == 1, result
+    assert result["imported"]["duplicates_skipped"] == 0
+    assert db_session.query(Transaction).filter_by(source_type="deposit").count() == 2
 
 
 # ============================================================================
