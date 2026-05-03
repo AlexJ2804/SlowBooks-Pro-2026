@@ -21,12 +21,34 @@ class SettingsUpdate(BaseModel):
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
-# Phase 12: Anthropic API key gets a masked-on-GET treatment. The same
-# hardening is NOT yet applied to the older sensitive keys (smtp_password,
-# stripe_secret_key, qbo_client_secret, qbo_*_token) — they're still
-# returned as plaintext. That inconsistency is filed as a separate
-# follow-up; widening the mask in this PR was explicitly out of scope.
-_MASKED_KEYS = {"anthropic_api_key"}
+# Sensitive keys that get masked-on-GET treatment. The full value never
+# leaves the server via /api/settings; the UI shows "••••••••<last4>" so
+# the user can verify which key is saved without exposing it to anyone
+# with browser DevTools open.
+#
+# What's NOT here, and why:
+# - stripe_publishable_key — by Stripe's own design, "publishable" keys
+#   are intended to be embedded in client-side code; masking would be
+#   theatre.
+# - qbo_client_id — Intuit treats client IDs as semi-public OAuth
+#   identifiers (only the client_secret is secret). Masking it would
+#   make legitimate debugging harder without security benefit.
+# - qbo_realm_id, qbo_token_expires_at, qbo_oauth_state — non-secret
+#   metadata / ephemeral CSRF nonce.
+#
+# Anthropic-key masking landed in phase 12; the rest were added in the
+# May-2026 audit follow-up that closed the "older sensitive keys still
+# returned plaintext" gap noted in the previous version of this comment.
+_MASKED_KEYS = {
+    "anthropic_api_key",
+    "smtp_password",
+    "stripe_secret_key",
+    "stripe_webhook_secret",
+    "qbo_client_secret",
+    "qbo_access_token",
+    "qbo_refresh_token",
+    "closing_date_password",
+}
 _MASK_PREFIX = "•" * 8
 
 

@@ -420,15 +420,70 @@ def test_put_with_masked_sentinel_preserves_stored_key(client):
     assert client.get("/api/settings").json()["anthropic_api_key"].endswith("9999")
 
 
-def test_pre_existing_secrets_stay_plaintext(client):
-    """Documented inconsistency: phase 4 only masks anthropic_api_key.
-    Pre-existing sensitive keys are still returned plaintext until the
-    follow-up cleanup commit. This test pins the boundary so the
-    follow-up doesn't surprise anyone."""
+def test_all_sensitive_secrets_are_masked_on_get(client):
+    """May-2026 follow-up to S2 audit finding: every credential field that
+    holds a true secret must be masked-on-GET, not just anthropic_api_key.
+    Replaces the old test_pre_existing_secrets_stay_plaintext that pinned
+    the *previous* (worse) behaviour as a deliberate boundary."""
     client.put("/api/settings", json={
-        "stripe_secret_key": "sk_test_pretend",
-        "smtp_password": "pretend-pw",
+        "stripe_secret_key": "sk_test_PRETEND_LIVE_KEY_4242",
+        "stripe_webhook_secret": "whsec_PRETEND_WHOOK_2026",
+        "smtp_password": "pretend-smtp-pw-9999",
+        "qbo_client_secret": "qbo-secret-PRETEND-1234",
+        "qbo_access_token": "qbo-access-PRETEND-TOK-5678",
+        "qbo_refresh_token": "qbo-refresh-PRETEND-TOK-9012",
+        "closing_date_password": "closing-pw-PRETEND-3456",
     })
-    settings = client.get("/api/settings").json()
-    assert settings["stripe_secret_key"] == "sk_test_pretend"
-    assert settings["smtp_password"] == "pretend-pw"
+    s = client.get("/api/settings").json()
+    # Each secret comes back as ••••••••<last4> with the full value never
+    # crossing the wire. Asserting on .endswith(last4) keeps the test
+    # robust to mask-prefix-length tweaks.
+    expected_last4 = {
+        "stripe_secret_key": "4242",
+        "stripe_webhook_secret": "2026",
+        "smtp_password": "9999",
+        "qbo_client_secret": "1234",
+        "qbo_access_token": "5678",
+        "qbo_refresh_token": "9012",
+        "closing_date_password": "3456",
+    }
+    for key, last4 in expected_last4.items():
+        assert "•" in s[key], f"{key} not masked: got {s[key]!r}"
+        assert s[key].endswith(last4), f"{key} mask wrong tail: got {s[key]!r}"
+        # The full plaintext must not be present anywhere in the masked value.
+        assert "PRETEND" not in s[key], f"{key} leaked plaintext: {s[key]!r}"
+
+
+def test_intentionally_public_keys_stay_plaintext(client):
+    """The Stripe Publishable Key is meant to be embedded in client-side
+    code (per Stripe's own docs); masking it would be theatre. Same for
+    QBO Client ID — Intuit treats client IDs as semi-public OAuth
+    identifiers. Pin this so a future overzealous "mask everything"
+    sweep doesn't break legitimate debugging."""
+    client.put("/api/settings", json={
+        "stripe_publishable_key": "pk_test_PRETEND_PUB_KEY",
+        "qbo_client_id": "ABoPretendClientID12345",
+    })
+    s = client.get("/api/settings").json()
+    assert s["stripe_publishable_key"] == "pk_test_PRETEND_PUB_KEY"
+    assert s["qbo_client_id"] == "ABoPretendClientID12345"
+
+
+def test_masked_sentinel_preserved_for_stripe_secret_key(client):
+    """The masked-sentinel-on-PUT logic was originally tested only for
+    anthropic_api_key (test_put_with_masked_sentinel_preserves_stored_key).
+    The same code path now handles every key in _MASKED_KEYS — pin one
+    of the newly-added keys so a refactor that accidentally narrows the
+    sentinel check fails loudly here too."""
+    client.put("/api/settings", json={"stripe_secret_key": "sk_live_REAL_PRETEND_7890"})
+    masked = client.get("/api/settings").json()["stripe_secret_key"]
+    assert masked.endswith("7890")
+    # Echo back the masked value (as the frontend does when the user
+    # didn't touch the field) — must NOT clobber the stored secret.
+    client.put("/api/settings", json={
+        "stripe_secret_key": masked,
+        "smtp_host": "smtp.example.com",  # unrelated change in same PUT
+    })
+    re_get = client.get("/api/settings").json()
+    assert re_get["stripe_secret_key"].endswith("7890"), "masked sentinel clobbered the real key"
+    assert re_get["smtp_host"] == "smtp.example.com"
