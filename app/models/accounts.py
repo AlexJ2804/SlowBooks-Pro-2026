@@ -31,8 +31,14 @@ class Account(Base):
     account_type = Column(Enum(AccountType), nullable=False)  # field 0x03, WORD
     parent_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)  # field 0x0A, sub-account ref
     description = Column(String(500), nullable=True)          # field 0x04, LPSTR[255]
-    is_active = Column(Boolean, default=True)                 # field 0x08, BOOL (0xFF = inactive)
-    is_system = Column(Boolean, default=False)  # seed accounts can't be deleted
+    # is_active / is_system gain server_defaults + NOT NULL in alembic
+    # i1f2a3b4c5d6 (May-2026 follow-up). Pre-h0e1f2a3b4c5 these were
+    # nullable; raw SQL inserts that omitted the column landed with NULL,
+    # which broke /api/accounts via Pydantic validation. Mirror the
+    # server-side state here so SQLAlchemy autogenerate doesn't try to
+    # diff them away on the next `alembic revision --autogenerate`.
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    is_system = Column(Boolean, nullable=False, default=False, server_default="false")  # seed accounts can't be deleted
     balance = Column(Numeric(12, 2), default=0)               # field 0x06, BCD[6] packed decimal
 
     # Net-worth phase 1: household ownership split. Sum of the three pcts

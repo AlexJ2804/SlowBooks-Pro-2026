@@ -135,3 +135,22 @@ def test_get_single_account_returns_latest_balance(client, db_session):
     r = client.get(f"/api/accounts/{house.id}")
     assert r.status_code == 200
     assert Decimal(r.json()["latest_balance"]) == Decimal("299000.00")
+
+
+def test_account_is_system_is_active_have_server_defaults(db_session):
+    """Pin that the Account model declares server-side defaults for
+    is_system / is_active (matching the i1f2a3b4c5d6 migration). Raw
+    SQL INSERTs that omit these columns get FALSE / TRUE rather than
+    NULL — closes the dirty-data path that surfaced when the May-2026
+    IIF bootstrap SQL inserted accounts without is_system."""
+    from app.models.accounts import Account
+    is_system_col = Account.__table__.c.is_system
+    is_active_col = Account.__table__.c.is_active
+    assert is_system_col.nullable is False
+    assert is_active_col.nullable is False
+    assert is_system_col.server_default is not None
+    assert is_active_col.server_default is not None
+    # Default-text inspection: SQLAlchemy stores DefaultClause; .arg holds
+    # the raw text/clause. Stringify and check for the expected literal.
+    assert "false" in str(is_system_col.server_default.arg).lower()
+    assert "true" in str(is_active_col.server_default.arg).lower()
