@@ -154,7 +154,7 @@ def start_scheduler():
     scheduler = BackgroundScheduler(timezone=timezone('America/Chicago'))
     scheduler.add_job(
         run_weekly_import,
-        CronTrigger(day_of_week='mon', hour=6, minute=0),
+        CronTrigger(day_of_week='mon', hour=6, minute=0, timezone=timezone('America/Chicago')),
         id='weekly_iif_import',
         name='Weekly IIF import from Gmail scraper',
         max_instances=1,  # never overlap if a previous run is still going
