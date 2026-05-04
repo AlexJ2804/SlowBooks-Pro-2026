@@ -41,8 +41,10 @@ services:
     volumes:
       - slowbooks_uploads:/app/app/static/uploads
       - slowbooks_backups:/app/backups
+      - slowbooks_logs:/app/logs
 
 volumes:
   postgres_data:
   slowbooks_uploads:
   slowbooks_backups:
+  slowbooks_logs:

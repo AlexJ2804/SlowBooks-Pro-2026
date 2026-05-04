@@ -56,6 +56,7 @@ from app.routes import receipts
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
 from app.services.audit import register_audit_hooks
+from app.services.scheduled_import import start_scheduler
 
 app = FastAPI(title="Slowbooks Pro 2026", version="2.0.0")
 
@@ -127,6 +128,9 @@ app.include_router(receipts.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)
+
+# Start weekly IIF import scheduler (gated by WEEKLY_IMPORT_ENABLED env var)
+start_scheduler()
 
 # Static files
 static_dir = Path(__file__).parent / "static"
