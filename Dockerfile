@@ -30,6 +30,7 @@ RUN chmod +x docker-entrypoint.sh
 
 EXPOSE 3001
 
+RUN mkdir -p /app/logs /app/backups/scheduled_iif
 RUN useradd -m -r slowbooks && chown -R slowbooks:slowbooks /app
 USER slowbooks
 
