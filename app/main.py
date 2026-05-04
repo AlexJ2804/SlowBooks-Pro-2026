@@ -52,6 +52,9 @@ from app.routes import fx
 from app.routes import classes as classes_route
 # Phase 13: Receipt parsing (Anthropic vision)
 from app.routes import receipts
+# Net worth phase 1: loan editing + amortization (balance entry + dashboard
+# come in later commits)
+from app.routes import loans as loans_route
 
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
@@ -125,6 +128,8 @@ app.include_router(fx.router)
 app.include_router(classes_route.router)
 # Phase 13: Receipt parsing
 app.include_router(receipts.router)
+# Net worth phase 1
+app.include_router(loans_route.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)

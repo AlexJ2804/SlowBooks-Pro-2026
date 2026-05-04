@@ -260,6 +260,42 @@ const App = {
             </div>`;
     },
 
+    // Net worth phase 1: kind chip color map. Picked for visual
+    // distinguishability rather than semantic meaning.
+    _kindChipColors: {
+        bank:        '#1f5fa8',  // blue
+        credit_card: '#c2410c',  // orange
+        brokerage:   '#16793b',  // green
+        retirement:  '#7c3aed',  // purple
+        property:    '#0f766e',  // teal
+        loan:        '#b91c1c',  // red
+    },
+
+    _kindChip(kind) {
+        if (!kind) return '';
+        const color = App._kindChipColors[kind] || '#555';
+        const label = kind.replace('_', ' ');
+        return `<span style="display:inline-block; padding:1px 6px; font-size:10px; font-weight:600; color:#fff; background:${color}; border-radius:8px; text-transform:capitalize; white-space:nowrap;">${label}</span>`;
+    },
+
+    _ownershipDisplay(a) {
+        // 0/0/0 = system COA row, render nothing. Otherwise compact triple.
+        if ((a.alex_pct || 0) === 0 && (a.alexa_pct || 0) === 0 && (a.kids_pct || 0) === 0) {
+            return '<span style="color:var(--text-muted);">—</span>';
+        }
+        return `<span style="font-family:var(--font-mono); font-size:11px;">${a.alex_pct}/${a.alexa_pct}/${a.kids_pct}</span>`;
+    },
+
+    _latestBalanceCell(a) {
+        if (a.latest_balance === null || a.latest_balance === undefined) {
+            return '<span style="color:var(--text-muted);">—</span>';
+        }
+        const ccy = (a.latest_balance_currency || a.currency || 'USD').toUpperCase();
+        const asOf = a.latest_balance_as_of ? formatDate(a.latest_balance_as_of) : '';
+        return `<div>${formatCurrency(a.latest_balance, ccy)}</div>`
+            + `<div style="font-size:10px; color:var(--text-muted);">${asOf}</div>`;
+    },
+
     async renderAccounts() {
         const accounts = await API.get('/accounts');
         const grouped = {};
@@ -272,25 +308,39 @@ const App = {
         const typeNames = { asset: 'Assets', liability: 'Liabilities', equity: 'Equity',
             income: 'Income', cogs: 'Cost of Goods Sold', expense: 'Expenses' };
 
+        // Headers gain Kind / Currency / Ownership / Latest balance.
+        // Header colspan in section dividers updated to 9 to match new column count.
         let html = `
             <div class="page-header">
                 <h2>Chart of Accounts</h2>
                 <button class="btn btn-primary" onclick="App.showAccountForm()">New Account</button>
             </div>
             <div class="table-container"><table>
-                <thead><tr><th style="width:80px;">Number</th><th>Name</th><th style="width:100px;">Type</th><th class="amount" style="width:100px;">Balance</th><th style="width:60px;">Actions</th></tr></thead>
+                <thead><tr>
+                    <th style="width:70px;">Number</th>
+                    <th>Name</th>
+                    <th style="width:90px;">Kind</th>
+                    <th style="width:60px;">Currency</th>
+                    <th style="width:80px;">Ownership</th>
+                    <th class="amount" style="width:90px;">Balance</th>
+                    <th style="width:130px;">Latest Snapshot</th>
+                    <th style="width:60px;">Actions</th>
+                </tr></thead>
                 <tbody>`;
 
         for (const type of typeOrder) {
             const accts = grouped[type] || [];
             if (accts.length === 0) continue;
-            html += `<tr style="background:linear-gradient(180deg, #e8ecf2 0%, #dde2ea 100%);"><td colspan="5" style="font-weight:700; color:var(--qb-navy); font-size:11px; padding:4px 10px;">${typeNames[type]}</td></tr>`;
+            html += `<tr style="background:linear-gradient(180deg, #e8ecf2 0%, #dde2ea 100%);"><td colspan="8" style="font-weight:700; color:var(--qb-navy); font-size:11px; padding:4px 10px;">${typeNames[type]}</td></tr>`;
             for (const a of accts) {
                 html += `<tr>
                     <td style="font-family:var(--font-mono);">${escapeHtml(a.account_number || '')}</td>
-                    <td>${a.is_system ? '' : ''}<strong>${escapeHtml(a.name)}</strong></td>
-                    <td>${a.account_type}</td>
+                    <td><strong>${escapeHtml(a.name)}</strong></td>
+                    <td>${App._kindChip(a.account_kind)}</td>
+                    <td style="font-family:var(--font-mono); font-size:11px;">${escapeHtml((a.currency || 'USD').toUpperCase())}</td>
+                    <td>${App._ownershipDisplay(a)}</td>
                     <td class="amount">${formatCurrency(a.balance)}</td>
+                    <td>${App._latestBalanceCell(a)}</td>
                     <td class="actions">
                         ${!a.is_system ? `<button class="btn btn-sm btn-secondary" onclick="App.showAccountForm(${a.id})">Edit</button>` : ''}
                     </td>
@@ -302,12 +352,81 @@ const App = {
     },
 
     async showAccountForm(id = null) {
-        let acct = { name: '', account_number: '', account_type: 'expense', description: '' };
-        if (id) acct = await API.get(`/accounts/${id}`);
+        let acct = {
+            name: '', account_number: '', account_type: 'expense', description: '',
+            account_kind: '', update_strategy: '', currency: 'USD',
+            alex_pct: 0, alexa_pct: 0, kids_pct: 0,
+        };
+        let loan = null;
+        if (id) {
+            acct = await API.get(`/accounts/${id}`);
+            if (acct.account_kind === 'loan') {
+                // 404 here is fine — the account is loan-kind but no loans
+                // row was set up. Surface a "missing loan row" hint rather
+                // than failing the modal entirely.
+                try { loan = await API.get(`/loans/by-account/${id}`); }
+                catch (e) { loan = { _missing: true }; }
+            }
+        }
 
         const types = ['asset','liability','equity','income','cogs','expense'];
+        const kinds = ['', 'bank', 'credit_card', 'brokerage', 'retirement', 'property', 'loan'];
+        const strategies = ['', 'transactional', 'balance_only'];
+
+        const ownershipSection = `
+            <div class="form-group full-width" style="border-top:1px solid var(--border); padding-top:8px; margin-top:4px;">
+                <label style="font-weight:700;">Household Ownership (must sum to 100, or all zero)</label>
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <label style="font-size:11px;">Alex
+                        <input name="alex_pct" type="number" min="0" max="100" style="width:60px;" value="${acct.alex_pct || 0}" oninput="App._updateOwnershipTotal()">
+                    </label>
+                    <label style="font-size:11px;">Alexa
+                        <input name="alexa_pct" type="number" min="0" max="100" style="width:60px;" value="${acct.alexa_pct || 0}" oninput="App._updateOwnershipTotal()">
+                    </label>
+                    <label style="font-size:11px;">Kids
+                        <input name="kids_pct" type="number" min="0" max="100" style="width:60px;" value="${acct.kids_pct || 0}" oninput="App._updateOwnershipTotal()">
+                    </label>
+                    <span id="ownership-total-display" style="font-size:11px; font-family:var(--font-mono);"></span>
+                </div>
+            </div>
+        `;
+
+        const loanSection = (acct.account_kind === 'loan' && loan && !loan._missing) ? `
+            <div class="form-group full-width" style="border-top:1px solid var(--border); padding-top:8px; margin-top:4px;">
+                <label style="font-weight:700;">Loan Parameters
+                    <span style="font-weight:400; font-size:10px; color:var(--text-muted);">
+                        — schedule has ${loan.schedule_row_count} row${loan.schedule_row_count === 1 ? '' : 's'}
+                    </span>
+                </label>
+                <div class="form-grid" style="margin-top:6px;">
+                    <div class="form-group"><label>Original Amount</label>
+                        <input name="loan_original_amount" type="number" step="0.01" value="${loan.original_amount}"></div>
+                    <div class="form-group"><label>Interest Rate (% APR)</label>
+                        <input name="loan_interest_rate" type="number" step="0.0001" value="${loan.interest_rate}"></div>
+                    <div class="form-group"><label>Term (months)</label>
+                        <input name="loan_term_months" type="number" value="${loan.term_months}"></div>
+                    <div class="form-group"><label>Start Date</label>
+                        <input name="loan_start_date" type="date" value="${loan.start_date}"></div>
+                    <div class="form-group"><label>Monthly Payment</label>
+                        <input name="loan_monthly_payment" type="number" step="0.01" value="${loan.monthly_payment}"></div>
+                    <div class="form-group"><label>Escrow per Payment</label>
+                        <input name="loan_escrow_amount" type="number" step="0.01" value="${loan.escrow_amount}"></div>
+                </div>
+                <button type="button" class="btn btn-sm btn-secondary" style="margin-top:6px;"
+                        onclick="App.generateLoanSchedule(${loan.id})">
+                    Generate schedule
+                </button>
+                <span id="loan-schedule-result" style="font-size:11px; margin-left:8px;"></span>
+            </div>
+        ` : (acct.account_kind === 'loan' ? `
+            <div class="form-group full-width" style="color:var(--qb-red); font-size:11px;">
+                Loan-kind account has no loans row. Re-run scripts/seed_personal_accounts.py
+                or insert one manually.
+            </div>
+        ` : '');
+
         openModal(id ? 'Edit Account' : 'New Account', `
-            <form onsubmit="App.saveAccount(event, ${id})">
+            <form id="account-form" onsubmit="App.saveAccount(event, ${id})">
                 <div class="form-grid">
                     <div class="form-group"><label>Account Number</label>
                         <input name="account_number" value="${escapeHtml(acct.account_number || '')}"></div>
@@ -317,22 +436,116 @@ const App = {
                         <select name="account_type">
                             ${types.map(t => `<option value="${t}" ${acct.account_type===t?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('')}
                         </select></div>
+                    <div class="form-group"><label>Kind</label>
+                        <select name="account_kind">
+                            ${kinds.map(k => `<option value="${k}" ${(acct.account_kind || '')===k?'selected':''}>${k || '— none —'}</option>`).join('')}
+                        </select></div>
+                    <div class="form-group"><label>Update Strategy</label>
+                        <select name="update_strategy">
+                            ${strategies.map(s => `<option value="${s}" ${(acct.update_strategy || '')===s?'selected':''}>${s || '— none —'}</option>`).join('')}
+                        </select></div>
+                    <div class="form-group"><label>Currency</label>
+                        <input name="currency" maxlength="3" style="text-transform:uppercase;" value="${escapeHtml((acct.currency || 'USD').toUpperCase())}"></div>
                     <div class="form-group full-width"><label>Description</label>
                         <textarea name="description">${escapeHtml(acct.description || '')}</textarea></div>
                 </div>
+                ${ownershipSection}
+                ${loanSection}
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">${id ? 'Update' : 'Create'} Account</button>
+                    <button type="submit" class="btn btn-primary" id="account-save-btn">${id ? 'Update' : 'Create'} Account</button>
                 </div>
             </form>`);
+        // Initial validation pass so the total widget is correct on open.
+        App._updateOwnershipTotal();
+    },
+
+    _updateOwnershipTotal() {
+        const form = document.getElementById('account-form');
+        if (!form) return;
+        const a = parseInt(form.elements['alex_pct']?.value || 0, 10) || 0;
+        const b = parseInt(form.elements['alexa_pct']?.value || 0, 10) || 0;
+        const c = parseInt(form.elements['kids_pct']?.value || 0, 10) || 0;
+        const total = a + b + c;
+        const display = document.getElementById('ownership-total-display');
+        const saveBtn = document.getElementById('account-save-btn');
+        // Mirror the DB CHECK: all-zero (system) OR sum-to-100 (personal).
+        const valid = (total === 0) || (total === 100);
+        if (display) {
+            display.textContent = `Total: ${total}${valid ? '' : ' (must be 0 or 100)'}`;
+            display.style.color = valid ? 'var(--text-muted)' : 'var(--qb-red, #c00)';
+        }
+        if (saveBtn) saveBtn.disabled = !valid;
+    },
+
+    async generateLoanSchedule(loanId) {
+        const result = document.getElementById('loan-schedule-result');
+        if (result) { result.textContent = 'Generating…'; result.style.color = 'var(--text-muted)'; }
+        try {
+            const r = await API.post(`/loans/${loanId}/generate-schedule`, {});
+            if (result) {
+                result.textContent = `Generated ${r.rows_generated} rows; final balance ${r.final_remaining_balance}`;
+                result.style.color = 'var(--qb-green, #060)';
+            }
+            toast('Schedule generated');
+        } catch (err) {
+            if (result) {
+                result.textContent = err.message || 'Failed to generate';
+                result.style.color = 'var(--qb-red, #c00)';
+            }
+            toast('Schedule generation failed', 'error');
+        }
     },
 
     async saveAccount(e, id) {
         e.preventDefault();
-        const data = Object.fromEntries(new FormData(e.target).entries());
+        const raw = Object.fromEntries(new FormData(e.target).entries());
+
+        // Pull loan_* fields out for a separate PUT call if present;
+        // they aren't valid Account columns.
+        const loanFields = {};
+        for (const k of Object.keys(raw)) {
+            if (k.startsWith('loan_')) {
+                loanFields[k.replace('loan_', '')] = raw[k];
+                delete raw[k];
+            }
+        }
+
+        // Normalise ownership pcts to numbers; empty kind/strategy → null.
+        for (const k of ['alex_pct', 'alexa_pct', 'kids_pct']) {
+            if (raw[k] === '' || raw[k] === undefined) {
+                raw[k] = 0;
+            } else {
+                raw[k] = parseInt(raw[k], 10) || 0;
+            }
+        }
+        for (const k of ['account_kind', 'update_strategy']) {
+            if (raw[k] === '') raw[k] = null;
+        }
+        if (raw.currency) raw.currency = raw.currency.toUpperCase();
+
         try {
-            if (id) { await API.put(`/accounts/${id}`, data); toast('Account updated'); }
-            else { await API.post('/accounts', data); toast('Account created'); }
+            let savedAccount;
+            if (id) {
+                savedAccount = await API.put(`/accounts/${id}`, raw);
+            } else {
+                savedAccount = await API.post('/accounts', raw);
+            }
+
+            // If the form had loan fields, look up the loan id by account
+            // and PUT them. Done sequentially so a loan-PUT failure surfaces
+            // with the account already saved (the ownership change is more
+            // valuable than the loan tweak; partial save is acceptable).
+            if (Object.keys(loanFields).length > 0 && savedAccount.account_kind === 'loan') {
+                try {
+                    const loan = await API.get(`/loans/by-account/${savedAccount.id}`);
+                    await API.put(`/loans/${loan.id}`, loanFields);
+                } catch (loanErr) {
+                    toast('Account saved, but loan update failed: ' + (loanErr.message || ''), 'error');
+                    return;
+                }
+            }
+            toast(id ? 'Account updated' : 'Account created');
             closeModal();
             App.navigate('#/accounts');
         } catch (err) { toast(err.message, 'error'); }
