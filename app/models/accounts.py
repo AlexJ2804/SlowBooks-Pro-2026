@@ -34,6 +34,28 @@ class Account(Base):
     is_active = Column(Boolean, default=True)                 # field 0x08, BOOL (0xFF = inactive)
     is_system = Column(Boolean, default=False)  # seed accounts can't be deleted
     balance = Column(Numeric(12, 2), default=0)               # field 0x06, BCD[6] packed decimal
+
+    # Net-worth phase 1: household ownership split. Sum of the three pcts
+    # is constrained at the DB layer to be either all-zero (system COA
+    # accounts not personally owned) or exactly 100. The CHECK is in
+    # alembic h0e1f2a3b4c5; mirror it in the UI when accepting edits.
+    alex_pct = Column(Integer, nullable=False, default=0, server_default="0")
+    alexa_pct = Column(Integer, nullable=False, default=0, server_default="0")
+    kids_pct = Column(Integer, nullable=False, default=0, server_default="0")
+
+    # account_kind sub-classifies asset/liability into the categories the
+    # net-worth dashboard groups by. Distinct from account_type which is
+    # the QB-coarse dimension (asset/liability/equity/income/expense/cogs).
+    # Nullable because existing system accounts (Service Income etc.)
+    # don't fit any of these — they're just income/expense lines.
+    account_kind = Column(String(20), nullable=True)
+    update_strategy = Column(String(20), nullable=True)
+
+    # Native currency of the account. Per-account because Revolut IE / BoI /
+    # Capital Credit Union are EUR while Heartland / Vanguard / Vestwell
+    # are USD. Defaults USD; the personal-accounts seed sets it explicitly.
+    currency = Column(String(3), nullable=False, default="USD", server_default="USD")
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

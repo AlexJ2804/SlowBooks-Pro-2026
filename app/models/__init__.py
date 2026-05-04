@@ -39,6 +39,10 @@ from app.models.budgets import Budget
 from app.models.attachments import Attachment
 from app.models.email_templates import EmailTemplate
 
+# Net worth phase 1: ownership + balance snapshots + loan amortization
+from app.models.loans import Loan, LoanAmortizationSchedule
+from app.models.balance_snapshots import BalanceSnapshot
+
 __all__ = [
     "Account", "Customer", "Vendor", "Item",
     "Transaction", "TransactionLine",
@@ -65,4 +69,6 @@ __all__ = [
     "QBOMapping",
     # Phase 10
     "BankRule", "Budget", "Attachment", "EmailTemplate",
+    # Net worth phase 1
+    "Loan", "LoanAmortizationSchedule", "BalanceSnapshot",
 ]
