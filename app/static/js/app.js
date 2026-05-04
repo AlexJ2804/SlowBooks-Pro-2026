@@ -48,8 +48,9 @@ const App = {
         // Phase 10: Quick Wins + Medium Effort Features
         '/budgets':       { page: 'budgets',         label: 'Budget vs Actual',   render: () => BudgetsPage.render() },
         '/bank-rules':    { page: 'bank-rules',      label: 'Bank Rules',         render: () => BankRulesPage.render() },
-        // Net worth phase 1 — manual balance entry (dashboard wired in next commit)
+        // Net worth phase 1
         '/balances':      { page: 'balances',        label: 'Balance Entry',      render: () => BalancesPage.render() },
+        '/net-worth':     { page: 'net-worth',       label: 'Net Worth',          render: () => NetWorthPage.render() },
     },
 
     async navigate(hash) {
