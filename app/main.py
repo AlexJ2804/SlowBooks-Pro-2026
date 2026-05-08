@@ -58,6 +58,11 @@ from app.routes import loans as loans_route
 from app.routes import balances as balances_route
 from app.routes import net_worth as net_worth_route
 
+# Phase 1.5: people directory for the ownership editor and household
+# slices. Read-only from the API side — household roster changes via
+# psql, not through clicks.
+from app.routes import people as people_route
+
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
 from app.services.audit import register_audit_hooks
@@ -134,6 +139,8 @@ app.include_router(receipts.router)
 app.include_router(loans_route.router)
 app.include_router(balances_route.router)
 app.include_router(net_worth_route.router)
+# Phase 1.5
+app.include_router(people_route.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)

@@ -43,6 +43,11 @@ from app.models.email_templates import EmailTemplate
 from app.models.loans import Loan, LoanAmortizationSchedule
 from app.models.balance_snapshots import BalanceSnapshot
 
+# Phase 1.5: people + account_ownerships join (replaces the legacy
+# alex_pct/alexa_pct/kids_pct columns on accounts; those stay around
+# under dual-write until a follow-up migration drops them).
+from app.models.people import Person, AccountOwnership
+
 __all__ = [
     "Account", "Customer", "Vendor", "Item",
     "Transaction", "TransactionLine",
@@ -71,4 +76,6 @@ __all__ = [
     "BankRule", "Budget", "Attachment", "EmailTemplate",
     # Net worth phase 1
     "Loan", "LoanAmortizationSchedule", "BalanceSnapshot",
+    # Phase 1.5
+    "Person", "AccountOwnership",
 ]

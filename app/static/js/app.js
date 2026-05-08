@@ -282,11 +282,30 @@ const App = {
     },
 
     _ownershipDisplay(a) {
-        // 0/0/0 = system COA row, render nothing. Otherwise compact triple.
-        if ((a.alex_pct || 0) === 0 && (a.alexa_pct || 0) === 0 && (a.kids_pct || 0) === 0) {
+        // Phase 1.5: prefer the join-table rows on the response, but fall
+        // back to the legacy alex/alexa/kids columns for older callers
+        // (e.g. pre-1.5 cached responses). The compact "X/Y/Z" format
+        // maps person_id 1/2/3 to the legacy slots; rows referencing
+        // any other person_id are surfaced as "+N other".
+        const rows = Array.isArray(a.ownerships) ? a.ownerships : null;
+        let alex = 0, alexa = 0, kids = 0, other = 0;
+        if (rows && rows.length > 0) {
+            for (const r of rows) {
+                if (r.person_id === 1) alex = r.share_pct;
+                else if (r.person_id === 2) alexa = r.share_pct;
+                else if (r.person_id === 3) kids = r.share_pct;
+                else other += r.share_pct;
+            }
+        } else {
+            alex = a.alex_pct || 0;
+            alexa = a.alexa_pct || 0;
+            kids = a.kids_pct || 0;
+        }
+        if (alex === 0 && alexa === 0 && kids === 0 && other === 0) {
             return '<span style="color:var(--text-muted);">—</span>';
         }
-        return `<span style="font-family:var(--font-mono); font-size:11px;">${a.alex_pct}/${a.alexa_pct}/${a.kids_pct}</span>`;
+        const tail = other > 0 ? ` <span style="color:var(--text-muted);">+${other} other</span>` : '';
+        return `<span style="font-family:var(--font-mono); font-size:11px;">${alex}/${alexa}/${kids}${tail}</span>`;
     },
 
     _latestBalanceCell(a) {
@@ -358,7 +377,7 @@ const App = {
         let acct = {
             name: '', account_number: '', account_type: 'expense', description: '',
             account_kind: '', update_strategy: '', currency: 'USD',
-            alex_pct: 0, alexa_pct: 0, kids_pct: 0,
+            alex_pct: 0, alexa_pct: 0, kids_pct: 0, ownerships: [],
         };
         let loan = null;
         if (id) {
@@ -376,21 +395,37 @@ const App = {
         const kinds = ['', 'bank', 'credit_card', 'brokerage', 'retirement', 'property', 'loan'];
         const strategies = ['', 'transactional', 'balance_only'];
 
+        // Phase 1.5: ownership editor reads from the people directory
+        // and renders one row per AccountOwnership. Rows are kept in
+        // App._ownershipState so the dynamic add/remove buttons can
+        // mutate the list without losing the unsaved values in the
+        // pct inputs.
+        const peopleList = await App._loadPeople();
+        App._ownershipPeople = peopleList;
+        let initialRows = [];
+        if (Array.isArray(acct.ownerships) && acct.ownerships.length > 0) {
+            initialRows = acct.ownerships.map(o => ({
+                person_id: o.person_id, share_pct: o.share_pct,
+            }));
+        } else if (id) {
+            // Defensive fallback for an existing account whose response
+            // somehow lacks the new field. Shouldn't happen post-1.5
+            // but means the editor still loads with sensible defaults
+            // if a stale cache hands us legacy-only data.
+            if ((acct.alex_pct || 0) > 0)  initialRows.push({ person_id: 1, share_pct: acct.alex_pct });
+            if ((acct.alexa_pct || 0) > 0) initialRows.push({ person_id: 2, share_pct: acct.alexa_pct });
+            if ((acct.kids_pct || 0) > 0)  initialRows.push({ person_id: 3, share_pct: acct.kids_pct });
+        }
+        App._ownershipState = initialRows;
+
         const ownershipSection = `
             <div class="form-group full-width" style="border-top:1px solid var(--border); padding-top:8px; margin-top:4px;">
-                <label style="font-weight:700;">Household Ownership (must sum to 100, or all zero)</label>
-                <div style="display:flex; gap:12px; align-items:center;">
-                    <label style="font-size:11px;">Alex
-                        <input name="alex_pct" type="number" min="0" max="100" style="width:60px;" value="${acct.alex_pct || 0}" oninput="App._updateOwnershipTotal()">
-                    </label>
-                    <label style="font-size:11px;">Alexa
-                        <input name="alexa_pct" type="number" min="0" max="100" style="width:60px;" value="${acct.alexa_pct || 0}" oninput="App._updateOwnershipTotal()">
-                    </label>
-                    <label style="font-size:11px;">Kids
-                        <input name="kids_pct" type="number" min="0" max="100" style="width:60px;" value="${acct.kids_pct || 0}" oninput="App._updateOwnershipTotal()">
-                    </label>
-                    <span id="ownership-total-display" style="font-size:11px; font-family:var(--font-mono);"></span>
-                </div>
+                <label style="font-weight:700;">Household Ownership
+                    <span style="font-weight:400; font-size:10px; color:var(--text-muted);">
+                        — shares must sum to 100, or leave empty for system / unowned accounts
+                    </span>
+                </label>
+                <div id="ownership-editor-wrap" style="margin-top:6px;"></div>
             </div>
         `;
 
@@ -459,23 +494,111 @@ const App = {
                     <button type="submit" class="btn btn-primary" id="account-save-btn">${id ? 'Update' : 'Create'} Account</button>
                 </div>
             </form>`);
-        // Initial validation pass so the total widget is correct on open.
+        // Initial render: paint the dynamic ownership editor from
+        // _ownershipState we populated above. _reRenderOwnership also
+        // updates the total widget + save button enable/disable.
+        App._reRenderOwnership();
+    },
+
+    // ---- Phase 1.5 ownership editor state + helpers ----------------------
+    // _peopleCache populates on first showAccountForm call and persists
+    // for the page lifetime. _ownershipPeople / _ownershipState are
+    // scoped to a single open modal — re-initialised each time.
+    _peopleCache: null,
+    _ownershipPeople: [],
+    _ownershipState: [],
+
+    async _loadPeople() {
+        if (App._peopleCache) return App._peopleCache;
+        App._peopleCache = await API.get('/people');
+        return App._peopleCache;
+    },
+
+    _renderOwnershipEditor(rows, peopleList) {
+        const usedIds = new Set(rows.map(r => r.person_id));
+        let body;
+        if (rows.length === 0) {
+            body = `<div style="font-size:11px; color:var(--text-muted); padding:4px 0;">
+                No owners — system / not personally owned.
+            </div>`;
+        } else {
+            body = rows.map((row, idx) => {
+                const opts = peopleList.map(p => {
+                    const disabled = (p.id !== row.person_id && usedIds.has(p.id));
+                    const sel = row.person_id === p.id ? 'selected' : '';
+                    const dis = disabled ? 'disabled' : '';
+                    return `<option value="${p.id}" ${sel} ${dis}>${escapeHtml(p.name)}</option>`;
+                }).join('');
+                return `<div class="ownership-row" style="display:flex; gap:6px; align-items:center; margin-bottom:4px;">
+                    <select onchange="App._ownershipPersonChanged(${idx}, this.value)" style="flex:0 0 140px;">${opts}</select>
+                    <input type="number" min="1" max="100" value="${row.share_pct}"
+                           oninput="App._ownershipPctChanged(${idx}, this.value)"
+                           style="width:70px;">
+                    <span style="font-size:11px; color:var(--text-muted);">%</span>
+                    <button type="button" class="btn btn-sm btn-secondary"
+                            onclick="App._removeOwnershipRow(${idx})"
+                            title="Remove" style="padding:2px 8px;">×</button>
+                </div>`;
+            }).join('');
+        }
+        const total = rows.reduce((s, r) => s + (parseInt(r.share_pct, 10) || 0), 0);
+        const valid = (rows.length === 0) || (total === 100);
+        const totalLabel = rows.length === 0 ? '' : `Total: ${total}${valid ? ' ✓' : ' (must be 100)'}`;
+        const totalColor = valid ? 'var(--text-muted)' : 'var(--qb-red, #c00)';
+        const canAdd = peopleList.length > usedIds.size;
+        return `${body}
+            <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+                <button type="button" class="btn btn-sm btn-secondary"
+                        onclick="App._addOwnershipRow()" ${canAdd ? '' : 'disabled'}>+ Add owner</button>
+                <span id="ownership-total-display" style="font-size:11px; font-family:var(--font-mono); color:${totalColor};">${totalLabel}</span>
+            </div>`;
+    },
+
+    _ownershipPersonChanged(idx, newValue) {
+        const pid = parseInt(newValue, 10);
+        if (App._ownershipState[idx]) {
+            App._ownershipState[idx].person_id = pid;
+            App._reRenderOwnership();
+        }
+    },
+
+    _ownershipPctChanged(idx, newValue) {
+        if (App._ownershipState[idx]) {
+            App._ownershipState[idx].share_pct = parseInt(newValue, 10) || 0;
+            App._updateOwnershipTotal();
+        }
+    },
+
+    _addOwnershipRow() {
+        const usedIds = new Set(App._ownershipState.map(r => r.person_id));
+        const next = App._ownershipPeople.find(p => !usedIds.has(p.id));
+        if (!next) return;  // all people already used
+        App._ownershipState.push({ person_id: next.id, share_pct: 0 });
+        App._reRenderOwnership();
+    },
+
+    _removeOwnershipRow(idx) {
+        App._ownershipState.splice(idx, 1);
+        App._reRenderOwnership();
+    },
+
+    _reRenderOwnership() {
+        const wrap = document.getElementById('ownership-editor-wrap');
+        if (wrap) {
+            wrap.innerHTML = App._renderOwnershipEditor(App._ownershipState, App._ownershipPeople);
+        }
         App._updateOwnershipTotal();
     },
 
     _updateOwnershipTotal() {
-        const form = document.getElementById('account-form');
-        if (!form) return;
-        const a = parseInt(form.elements['alex_pct']?.value || 0, 10) || 0;
-        const b = parseInt(form.elements['alexa_pct']?.value || 0, 10) || 0;
-        const c = parseInt(form.elements['kids_pct']?.value || 0, 10) || 0;
-        const total = a + b + c;
+        const total = App._ownershipState.reduce(
+            (s, r) => s + (parseInt(r.share_pct, 10) || 0), 0);
         const display = document.getElementById('ownership-total-display');
         const saveBtn = document.getElementById('account-save-btn');
-        // Mirror the DB CHECK: all-zero (system) OR sum-to-100 (personal).
-        const valid = (total === 0) || (total === 100);
+        const empty = App._ownershipState.length === 0;
+        const valid = empty || (total === 100);
         if (display) {
-            display.textContent = `Total: ${total}${valid ? '' : ' (must be 0 or 100)'}`;
+            display.textContent = empty ? '' : `Total: ${total}${valid ? ' ✓' : ' (must be 100)'}`;
             display.style.color = valid ? 'var(--text-muted)' : 'var(--qb-red, #c00)';
         }
         if (saveBtn) saveBtn.disabled = !valid;
@@ -514,14 +637,18 @@ const App = {
             }
         }
 
-        // Normalise ownership pcts to numbers; empty kind/strategy → null.
-        for (const k of ['alex_pct', 'alexa_pct', 'kids_pct']) {
-            if (raw[k] === '' || raw[k] === undefined) {
-                raw[k] = 0;
-            } else {
-                raw[k] = parseInt(raw[k], 10) || 0;
-            }
-        }
+        // Phase 1.5: ownership comes from the dynamic editor's state,
+        // not form inputs. Strip any stale alex_pct/alexa_pct/kids_pct
+        // keys that might be in raw (none should be, since those inputs
+        // were removed) and attach the new `ownerships` array.
+        delete raw.alex_pct;
+        delete raw.alexa_pct;
+        delete raw.kids_pct;
+        raw.ownerships = App._ownershipState.map(r => ({
+            person_id: parseInt(r.person_id, 10),
+            share_pct: parseInt(r.share_pct, 10) || 0,
+        }));
+
         for (const k of ['account_kind', 'update_strategy']) {
             if (raw[k] === '') raw[k] = null;
         }

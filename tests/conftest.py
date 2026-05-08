@@ -42,6 +42,7 @@ from app.models import (  # noqa: F401
     loans,
     payments,
     payroll,
+    people,
     purchase_orders,
     qbo_mapping,
     recurring,

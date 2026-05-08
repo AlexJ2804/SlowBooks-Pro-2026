@@ -59,7 +59,8 @@ def test_list_accounts_filters_by_kind(client, db_session):
     _seed_personal(db_session)
     r = client.get("/api/accounts?account_kind=bank")
     rows = r.json()
-    assert len(rows) == 7  # spec: 7 banks
+    # 7 phase-1 banks + PennyMac Escrow added in phase 1.5 = 8.
+    assert len(rows) == 8
     assert all(a["account_kind"] == "bank" for a in rows)
 
 
