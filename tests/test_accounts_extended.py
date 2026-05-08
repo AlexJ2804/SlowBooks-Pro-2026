@@ -138,6 +138,118 @@ def test_get_single_account_returns_latest_balance(client, db_session):
     assert Decimal(r.json()["latest_balance"]) == Decimal("299000.00")
 
 
+# ---------------------------------------------------------------------------
+# Phase 1.5 ownerships PUT path — regression coverage for commit 3ad844c
+# where a dict-vs-Pydantic-object bug in update_account silently 500'd on
+# every non-empty ownerships array. The legacy alex_pct/alexa_pct/kids_pct
+# tests above don't exercise this path — keeping them green wasn't enough.
+# ---------------------------------------------------------------------------
+
+def test_put_ownerships_replaces_rows_and_dual_writes_legacy_pcts(client, db_session):
+    """PUTting an ownerships array swaps the join rows wholesale and
+    also updates the deprecated alex_pct/alexa_pct/kids_pct columns
+    (dual-write window). Re-GET confirms persistence."""
+    _seed_personal(db_session)
+    from app.models.accounts import Account
+    cks = db_session.query(Account).filter_by(name="Heartland Joint Checking").first()
+
+    r = client.put(f"/api/accounts/{cks.id}", json={
+        "ownerships": [
+            {"person_id": 1, "share_pct": 70},
+            {"person_id": 2, "share_pct": 30},
+        ],
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Response carries the new join rows AND the dual-written legacy cols.
+    assert body["alex_pct"] == 70
+    assert body["alexa_pct"] == 30
+    assert body["kids_pct"] == 0
+    rows_by_pid = {o["person_id"]: o["share_pct"] for o in body["ownerships"]}
+    assert rows_by_pid == {1: 70, 2: 30}
+
+    # Re-GET to confirm the change persisted (and isn't just an in-memory
+    # response-shape artifact).
+    rg = client.get(f"/api/accounts/{cks.id}")
+    rb = rg.json()
+    assert rb["alex_pct"] == 70 and rb["alexa_pct"] == 30
+    assert {o["person_id"]: o["share_pct"] for o in rb["ownerships"]} == {1: 70, 2: 30}
+
+
+def test_put_ownerships_empty_list_clears_rows(client, db_session):
+    """Sending an empty ownerships array marks the account as
+    system-style (no personal owner). Both the join rows and the
+    dual-write legacy columns zero out."""
+    _seed_personal(db_session)
+    from app.models.accounts import Account
+    cks = db_session.query(Account).filter_by(name="Heartland Joint Checking").first()
+
+    r = client.put(f"/api/accounts/{cks.id}", json={"ownerships": []})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ownerships"] == []
+    assert body["alex_pct"] == 0
+    assert body["alexa_pct"] == 0
+    assert body["kids_pct"] == 0
+
+
+def test_put_ownerships_unknown_person_id_rejected(client, db_session):
+    """Referencing a person_id that doesn't exist in the people table
+    surfaces as a clean 422 with a descriptive message rather than a
+    generic 500 from the FK constraint at flush time."""
+    _seed_personal(db_session)
+    from app.models.accounts import Account
+    cks = db_session.query(Account).filter_by(name="Heartland Joint Checking").first()
+
+    r = client.put(f"/api/accounts/{cks.id}", json={
+        "ownerships": [{"person_id": 999, "share_pct": 100}],
+    })
+    assert r.status_code == 422, r.text
+    assert "999" in r.text
+    assert "person_id" in r.text
+
+
+def test_put_ownerships_sum_not_100_rejected(client, db_session):
+    """Pydantic's sum-to-100 validator rejects bad totals before they
+    reach the DB. Pinned to make sure the new-shape input gets the same
+    422-not-500 treatment as the legacy three-column input."""
+    _seed_personal(db_session)
+    from app.models.accounts import Account
+    cks = db_session.query(Account).filter_by(name="Heartland Joint Checking").first()
+
+    r = client.put(f"/api/accounts/{cks.id}", json={
+        "ownerships": [
+            {"person_id": 1, "share_pct": 60},
+            {"person_id": 2, "share_pct": 30},
+        ],
+    })
+    assert r.status_code == 422, r.text
+    assert "sum to 100" in r.text
+
+
+def test_post_ownerships_creates_account_with_join_rows(client, db_session):
+    """Symmetry pin: POST /api/accounts with an ownerships array creates
+    the account AND its ownership rows in one transaction (so the new
+    UI's create-with-ownership flow doesn't 500 the way the PUT did
+    before commit 3ad844c was patched)."""
+    _seed_personal(db_session)
+    r = client.post("/api/accounts", json={
+        "name": "Brokerage Test Account",
+        "account_type": "asset",
+        "account_kind": "brokerage",
+        "update_strategy": "balance_only",
+        "currency": "USD",
+        "ownerships": [
+            {"person_id": 1, "share_pct": 50},
+            {"person_id": 2, "share_pct": 50},
+        ],
+    })
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["alex_pct"] == 50 and body["alexa_pct"] == 50
+    assert {o["person_id"]: o["share_pct"] for o in body["ownerships"]} == {1: 50, 2: 50}
+
+
 def test_account_is_system_is_active_have_server_defaults(db_session):
     """Pin that the Account model declares server-side defaults for
     is_system / is_active (matching the i1f2a3b4c5d6 migration). Raw

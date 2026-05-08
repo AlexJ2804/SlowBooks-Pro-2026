@@ -601,7 +601,15 @@ const App = {
             display.textContent = empty ? '' : `Total: ${total}${valid ? ' ✓' : ' (must be 100)'}`;
             display.style.color = valid ? 'var(--text-muted)' : 'var(--qb-red, #c00)';
         }
-        if (saveBtn) saveBtn.disabled = !valid;
+        if (saveBtn) {
+            saveBtn.disabled = !valid;
+            // The disabled attribute alone doesn't visually distinguish
+            // the button on this stylesheet — same dark blue as enabled.
+            // Add a half-opacity + not-allowed cursor so the user sees
+            // why their click isn't working.
+            saveBtn.style.opacity = valid ? '' : '0.5';
+            saveBtn.style.cursor = valid ? '' : 'not-allowed';
+        }
     },
 
     async generateLoanSchedule(loanId) {

@@ -253,8 +253,17 @@ def update_account(account_id: int, data: AccountUpdate, db: Session = Depends(g
     # Treat ownerships specially:
     #   - field absent  -> leave ownership rows untouched
     #   - field present -> replace rows wholesale (incl. empty list = clear)
+    #
+    # IMPORTANT: read `data.ownerships` for the actual Pydantic objects,
+    # not from the dumped `payload` dict. `model_dump()` recursively
+    # serializes nested BaseModels to plain dicts, so popping from
+    # `payload` would hand `_replace_ownerships` a list[dict] and
+    # AttributeError (`r.person_id` on a dict) bubbles to a 500. The
+    # `payload.pop` is still done — but only to keep the key out of
+    # the column-setattr loop below.
     ownership_present = "ownerships" in payload
-    ownerships_in: Optional[List[OwnershipShareIn]] = payload.pop("ownerships", None)
+    ownerships_in: Optional[List[OwnershipShareIn]] = data.ownerships
+    payload.pop("ownerships", None)
 
     # Same dance for the legacy pct fields.
     legacy_keys = ("alex_pct", "alexa_pct", "kids_pct")
