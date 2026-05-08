@@ -250,6 +250,52 @@ def test_post_ownerships_creates_account_with_join_rows(client, db_session):
     assert {o["person_id"]: o["share_pct"] for o in body["ownerships"]} == {1: 50, 2: 50}
 
 
+def test_put_account_number_empty_string_treated_as_null(client, db_session):
+    """Form-driven saves serialize blank account_number inputs as "".
+    Multiple rows with "" violate the UNIQUE constraint on account_number
+    and used to surface as a generic 500. The schema now coerces blank
+    strings to None on the way in, so two accounts can both come through
+    with no number without colliding (Postgres treats NULLs as distinct
+    under UNIQUE).
+    """
+    _seed_personal(db_session)
+    from app.models.accounts import Account
+    cks = db_session.query(Account).filter_by(name="Heartland Joint Checking").first()
+
+    # Empty string in — null on the response.
+    r = client.put(f"/api/accounts/{cks.id}", json={"account_number": ""})
+    assert r.status_code == 200, r.text
+    assert r.json()["account_number"] is None
+
+    # Whitespace-only is treated the same way.
+    r = client.put(f"/api/accounts/{cks.id}", json={"account_number": "   "})
+    assert r.status_code == 200, r.text
+    assert r.json()["account_number"] is None
+
+    # Two distinct accounts can both PUT "" without a UNIQUE collision.
+    other = db_session.query(Account).filter_by(name="Revolut IE").first()
+    r = client.put(f"/api/accounts/{other.id}", json={"account_number": ""})
+    assert r.status_code == 200, r.text
+    assert r.json()["account_number"] is None
+
+
+def test_post_account_number_empty_string_treated_as_null(client, db_session):
+    """POST path gets the same coercion as PUT — creating a new account
+    with a blank account_number lands as NULL rather than "" in the DB.
+    """
+    _seed_personal(db_session)
+    r = client.post("/api/accounts", json={
+        "name": "No-Number Test Account",
+        "account_type": "asset",
+        "account_kind": "bank",
+        "update_strategy": "balance_only",
+        "currency": "USD",
+        "account_number": "",
+    })
+    assert r.status_code == 201, r.text
+    assert r.json()["account_number"] is None
+
+
 def test_account_is_system_is_active_have_server_defaults(db_session):
     """Pin that the Account model declares server-side defaults for
     is_system / is_active (matching the i1f2a3b4c5d6 migration). Raw

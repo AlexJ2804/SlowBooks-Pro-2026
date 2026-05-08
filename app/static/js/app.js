@@ -657,7 +657,11 @@ const App = {
             share_pct: parseInt(r.share_pct, 10) || 0,
         }));
 
-        for (const k of ['account_kind', 'update_strategy']) {
+        // Empty-string → null for nullable optional columns. account_number
+        // is UNIQUE in the DB, so leaving it as "" would collide with any
+        // pre-existing row that already has "" (legacy IIF imports left a
+        // few of these around). The form serializes blank inputs as "".
+        for (const k of ['account_kind', 'update_strategy', 'account_number']) {
             if (raw[k] === '') raw[k] = null;
         }
         if (raw.currency) raw.currency = raw.currency.toUpperCase();

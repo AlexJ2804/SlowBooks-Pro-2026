@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from app.models.accounts import AccountType
 from app.schemas.people import OwnershipShareIn, OwnershipShareOut
@@ -16,6 +16,19 @@ _VALID_ACCOUNT_KINDS = {"bank", "credit_card", "brokerage", "retirement", "prope
 _VALID_UPDATE_STRATEGIES = {"transactional", "balance_only"}
 
 
+def _empty_str_to_none(v):
+    """Coerce blank strings to None for fields that are nullable + UNIQUE.
+
+    Forms send blank inputs as "" rather than omitting them. account_number
+    has a UNIQUE constraint, so two accounts both posting "" collide and
+    return a generic 500. Mapping "" → NULL lets multiple accounts coexist
+    without a number, since Postgres treats NULLs as distinct under UNIQUE.
+    """
+    if isinstance(v, str) and v.strip() == "":
+        return None
+    return v
+
+
 class AccountCreate(BaseModel):
     name: str
     account_number: Optional[str] = None
@@ -25,6 +38,10 @@ class AccountCreate(BaseModel):
     account_kind: Optional[str] = None
     update_strategy: Optional[str] = None
     currency: Optional[str] = None
+
+    _coerce_account_number = field_validator(
+        "account_number", mode="before"
+    )(_empty_str_to_none)
     # Phase 1.5: new authoritative ownership shape. When provided, the
     # route handler replaces the account's ownership rows wholesale and
     # back-fills the legacy alex_pct/alexa_pct/kids_pct columns. When
@@ -61,6 +78,10 @@ class AccountUpdate(BaseModel):
     account_kind: Optional[str] = None
     update_strategy: Optional[str] = None
     currency: Optional[str] = None
+
+    _coerce_account_number = field_validator(
+        "account_number", mode="before"
+    )(_empty_str_to_none)
     # See AccountCreate for the ownership rules. On update, omitting
     # `ownerships` means "don't touch the ownership rows" (partial PUT
     # semantics). Sending an empty list explicitly means "clear all
