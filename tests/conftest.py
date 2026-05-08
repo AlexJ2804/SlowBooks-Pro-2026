@@ -22,6 +22,7 @@ from app.seed.chart_of_accounts import CHART_OF_ACCOUNTS
 # Without these imports, tables defined in unimported modules wouldn't be created.
 from app.models import (  # noqa: F401
     accounts,
+    airline_miles,
     attachments,
     audit,
     backups,

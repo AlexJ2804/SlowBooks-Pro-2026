@@ -51,6 +51,8 @@ const App = {
         // Net worth phase 1
         '/balances':      { page: 'balances',        label: 'Balance Entry',      render: () => BalancesPage.render() },
         '/net-worth':     { page: 'net-worth',       label: 'Net Worth',          render: () => NetWorthPage.render() },
+        // Phase 1.5 task 2 — airline miles
+        '/miles':         { page: 'miles',           label: 'Airline Miles',      render: () => AirlineMilesPage.render() },
     },
 
     async navigate(hash) {

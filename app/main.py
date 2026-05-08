@@ -62,6 +62,8 @@ from app.routes import net_worth as net_worth_route
 # slices. Read-only from the API side — household roster changes via
 # psql, not through clicks.
 from app.routes import people as people_route
+# Phase 1.5 task 2: airline miles tracker (programs + memberships + snapshots).
+from app.routes import airline_miles as airline_miles_route
 
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
@@ -141,6 +143,7 @@ app.include_router(balances_route.router)
 app.include_router(net_worth_route.router)
 # Phase 1.5
 app.include_router(people_route.router)
+app.include_router(airline_miles_route.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)
