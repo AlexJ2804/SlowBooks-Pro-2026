@@ -51,8 +51,9 @@ const App = {
         // Net worth phase 1
         '/balances':      { page: 'balances',        label: 'Balance Entry',      render: () => BalancesPage.render() },
         '/net-worth':     { page: 'net-worth',       label: 'Net Worth',          render: () => NetWorthPage.render() },
-        // Phase 1.5 task 2 — airline miles
-        '/miles':         { page: 'miles',           label: 'Airline Miles',      render: () => AirlineMilesPage.render() },
+        // Phase 1.5 task 2 — airline miles (cabin: true → page provides
+        // its own gutter via .sb-head + .sb-grid; router skips the legacy wrapper)
+        '/miles':         { page: 'miles',           label: 'Airline Miles',      cabin: true, render: () => AirlineMilesPage.render() },
         // Phase 1.5 task 3 — credit scores
         '/credit-scores': { page: 'credit-scores',   label: 'Credit Scores',      render: () => CreditScoresPage.render() },
     },
@@ -60,7 +61,10 @@ const App = {
     async navigate(hash) {
         const path = hash.replace('#', '') || '/';
         const route = App.routes[path];
-        if (!route) { $('#page-content').innerHTML = '<p>Page not found</p>'; return; }
+        if (!route) {
+            $('#page-content').innerHTML = '<div class="sb-page-pad"><p>Page not found</p></div>';
+            return;
+        }
 
         // Update active nav
         $$('.nav-link').forEach(link => {
@@ -70,9 +74,21 @@ const App = {
         // Status bar
         App.setStatus(`Loading ${route.label}...`);
 
+        // Cabin pages (e.g. /#/miles) build their own page chrome with
+        // .sb-head + .sb-grid + .sb-section primitives, each of which
+        // carries the standard --pad-page-x / --pad-page-top gutter.
+        // Legacy pages render flush against #page-content and would
+        // otherwise hug the sidebar — the router wraps their output in
+        // .sb-page-pad so they pick up the same gutter without each
+        // page module needing to know about it. Pages opt out by
+        // setting `cabin: true` on the route entry; the rest of the
+        // app migrates to cabin layout primitives one page at a time.
+        const wrap = (html) =>
+            route.cabin ? html : `<div class="sb-page-pad">${html}</div>`;
+
         try {
             const html = await route.render();
-            $('#page-content').innerHTML = html;
+            $('#page-content').innerHTML = wrap(html);
             App.setStatus(`${route.label} — Ready`);
         } catch (err) {
             // Server-side detail (err.message and stack) goes to console
@@ -80,13 +96,14 @@ const App = {
             // recovery action. Avoid leaking framework / decompilation
             // internals into the rendered page (S1 audit finding).
             console.error(err);
-            $('#page-content').innerHTML = `<div class="empty-state">
-                <h3>Couldn't load this page</h3>
-                <p>${escapeHtml(err.message || 'An unexpected error occurred.')}</p>
-                <p style="margin-top:12px;">
-                    <a href="#/" class="btn btn-secondary">Return to Dashboard</a>
-                </p>
-            </div>`;
+            $('#page-content').innerHTML = wrap(`
+                <div class="empty-state">
+                    <h3>Couldn't load this page</h3>
+                    <p>${escapeHtml(err.message || 'An unexpected error occurred.')}</p>
+                    <p style="margin-top:12px;">
+                        <a href="#/" class="btn btn-secondary">Return to Dashboard</a>
+                    </p>
+                </div>`);
             App.setStatus('Error loading page');
         }
     },

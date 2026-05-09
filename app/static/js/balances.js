@@ -37,7 +37,6 @@ const BalancesPage = {
         ).join('');
 
         let html = `
-            <div class="sb-page-pad">
             <div class="page-header">
                 <h2>Balance Entry</h2>
             </div>
@@ -76,7 +75,6 @@ const BalancesPage = {
                         ${BalancesPage._renderRecent(recent)}
                     </div>
                 </div>
-            </div>
             </div>
         `;
         return html;
