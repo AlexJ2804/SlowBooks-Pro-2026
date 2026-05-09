@@ -108,10 +108,11 @@ const AirlineMilesPage = {
             }
             const balCls = m.latest_balance == null ? ' empty' : '';
             const memberStr = m.member_number ? escapeHtml(m.member_number) : '&mdash;';
+            const memberTitle = m.member_number ? ` title="${escapeHtml(m.member_number)}"` : '';
             return `
                 <div class="sb-card-row cols-4">
                     <span class="who">${escapeHtml(person.name)}<small>${escapeHtml(AirlineMilesPage._personRoleLabel(person))}</small></span>
-                    <span class="num">${memberStr}</span>
+                    <span class="num"${memberTitle}>${memberStr}</span>
                     <span class="bal${balCls}">${AirlineMilesPage._fmt(m.latest_balance)}</span>
                     <button class="btn btn-sm btn-secondary" type="button"
                             onclick="AirlineMilesPage.openUpdate(${m.id})">Update</button>
@@ -189,11 +190,12 @@ const AirlineMilesPage = {
                     </div>`;
             }
             const balCls = m.latest_balance == null ? ' empty' : '';
+            const memberTitle = m.member_number ? ` title="${escapeHtml(m.member_number)}"` : '';
             return `
                 <div class="sb-prow">
                     ${tile}
                     <div class="pname">${escapeHtml(programName || airlineName)}<small>${escapeHtml(airlineName)}</small></div>
-                    <div class="pmember">${m.member_number ? escapeHtml(m.member_number) : '&mdash;'}</div>
+                    <div class="pmember"${memberTitle}>${m.member_number ? escapeHtml(m.member_number) : '&mdash;'}</div>
                     <div class="pbal${balCls}">${AirlineMilesPage._fmt(m.latest_balance)}</div>
                     <button class="btn btn-sm btn-secondary" type="button"
                             onclick="AirlineMilesPage.openUpdate(${m.id})">Update</button>

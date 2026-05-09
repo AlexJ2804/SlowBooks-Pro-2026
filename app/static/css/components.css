@@ -160,6 +160,13 @@
   font-size: 11.5px;
   color: var(--ink-2);
   letter-spacing: 0.02em;
+  /* Long member numbers (e.g. AerClub's 26-char tokens) would
+     otherwise force the 1fr column wider than its share and push
+     the balance + Update button off the row. min-width:0 lets the
+     grid track shrink; overflow-wrap:anywhere wraps the string
+     mid-token rather than truncating. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .sb-card-row .bal {
   font-family: var(--font-mono-ds);
@@ -296,6 +303,11 @@
   font-family: var(--font-mono-ds);
   font-size: 11.5px;
   color: var(--ink-2);
+  /* min-width:0 is needed for the existing ellipsis to actually
+     activate inside a grid track — without it the cell defaults to
+     min-width:auto (= content min-width) and a long member number
+     forces the column wider than its 110px slot. */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
