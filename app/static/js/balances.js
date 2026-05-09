@@ -69,7 +69,7 @@ const BalancesPage = {
                     </div>
                     <div style="font-size:10px; color:var(--text-muted); margin-top:6px;">
                         Re-entering the same account + date overwrites the previous value.
-                        For loan accounts, enter the current outstanding balance as a positive number.
+                        For credit cards and loans, enter the current outstanding balance as a positive number — the dashboard treats those account kinds as liabilities and signs them automatically.
                     </div>
                 </form>
                 <div style="flex: 1 1 auto; min-width: 0;">
