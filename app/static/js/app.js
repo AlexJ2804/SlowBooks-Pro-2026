@@ -54,8 +54,9 @@ const App = {
         // Phase 1.5 task 2 — airline miles (cabin: true → page provides
         // its own gutter via .sb-head + .sb-grid; router skips the legacy wrapper)
         '/miles':         { page: 'miles',           label: 'Airline Miles',      cabin: true, render: () => AirlineMilesPage.render() },
-        // Phase 1.5 task 3 — credit scores
-        '/credit-scores': { page: 'credit-scores',   label: 'Credit Scores',      render: () => CreditScoresPage.render() },
+        // Phase 1.5 task 3 — credit scores (cabin: true → page provides
+        // its own gutter via .sb-head + .sb-section; router skips the legacy wrapper)
+        '/credit-scores': { page: 'credit-scores',   label: 'Credit Scores',      cabin: true, render: () => CreditScoresPage.render() },
     },
 
     async navigate(hash) {
