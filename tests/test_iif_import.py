@@ -327,6 +327,66 @@ def test_iif_import_bill_falls_back_to_uncategorized_when_no_class(
         assert b.class_id == seed_classes["Uncategorized"].id
 
 
+def test_iif_import_bill_uses_vendor_default_class_when_iif_has_no_class(
+    db_session, seed_accounts, seed_classes
+):
+    """When the IIF has no CLASS column but the vendor has a
+    default_class_id set, the bill auto-tags to the vendor's default
+    instead of falling through to Uncategorized. This is the per-vendor
+    auto-tagging path used to send TJX/Menards/Home Depot bills to the
+    Airbnb class without modifying the Apps Script IIF generator."""
+    from app.services.iif_import import parse_iif, import_transactions
+    from app.models.bills import Bill
+    from app.models.contacts import Vendor
+
+    v = _seed_apple_vendor(db_session)
+    v.default_class_id = seed_classes["Class A"].id
+    db_session.commit()
+
+    parsed = parse_iif(BILL_IIF)
+    import_transactions(db_session, parsed["TRNS"])
+    db_session.commit()
+
+    bills = db_session.query(Bill).all()
+    assert len(bills) == 2
+    for b in bills:
+        assert b.class_id == seed_classes["Class A"].id
+
+
+def test_iif_import_bill_iif_class_wins_over_vendor_default(
+    db_session, seed_accounts, seed_classes
+):
+    """An explicit CLASS in the IIF SPL row beats the vendor's default —
+    the IIF is the more specific instruction. Without this guard, every
+    bill from a default-class vendor would silently ignore class
+    overrides the user typed into the source spreadsheet."""
+    from app.services.iif_import import parse_iif, import_transactions
+    from app.models.bills import Bill
+
+    v = _seed_apple_vendor(db_session)
+    # Vendor default is Class A, but the IIF below explicitly sets Class B.
+    v.default_class_id = seed_classes["Class A"].id
+    db_session.commit()
+
+    iif_with_class = (
+        "!TRNS\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tDOCNUM\tDUEDATE\tTERMS\tMEMO\n"
+        "!SPL\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tDOCNUM\tCLASS\tMEMO\n"
+        "!ENDTRNS\n"
+        "TRNS\tBILL\t05/01/2026\tAccounts Payable\tApple Store\t-1.00\tCLS-001\t05/31/2026\tNet 30\toverride test\n"
+        "SPL\tBILL\t05/01/2026\tOffice Supplies\tApple Store\t1.00\tCLS-001\tClass B\toverride line\n"
+        "ENDTRNS\n"
+    )
+    parsed = parse_iif(iif_with_class)
+    import_transactions(db_session, parsed["TRNS"])
+    db_session.commit()
+
+    bills = db_session.query(Bill).all()
+    assert len(bills) == 1
+    assert bills[0].class_id == seed_classes["Class B"].id, (
+        "explicit IIF CLASS must override vendor default_class_id"
+    )
+
+
 # ============================================================================
 # DEPOSIT import tests
 # ============================================================================

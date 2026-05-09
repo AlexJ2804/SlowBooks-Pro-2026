@@ -15,6 +15,7 @@
 import logging
 from datetime import datetime, date
 from decimal import Decimal, InvalidOperation
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -690,7 +691,10 @@ def import_transactions(db: Session, blocks: list) -> dict:
     return {"imported": counts, "errors": errors, "warnings": warnings}
 
 
-def _resolve_block_class(db: Session, trns_type: str, doc_num: str, spls: list) -> int:
+def _resolve_block_class(
+    db: Session, trns_type: str, doc_num: str, spls: list,
+    vendor: Optional["Vendor"] = None,
+) -> int:
     """Collapse SPL.CLASS values to a single class_id at the entity level.
 
     Schema reality: neither BillLine nor TransactionLine carry class_id —
@@ -699,7 +703,12 @@ def _resolve_block_class(db: Session, trns_type: str, doc_num: str, spls: list) 
     reconcile it down to one value.
 
     Rules:
-    - All SPL.CLASS values absent or empty → fall back to Uncategorized.
+    - All SPL.CLASS values absent or empty → fall back to the vendor's
+      default_class_id when one is set (per-vendor auto-tag, e.g. all
+      TJX/Menards/Home Depot bills → "Airbnb income from US Home"),
+      otherwise Uncategorized. Explicit IIF.CLASS always wins over the
+      vendor default — the IIF row is more specific than the vendor's
+      blanket policy.
     - One distinct CLASS across all SPLs → look it up strictly; ValueError
       if not found, same posture as missing vendor/account.
     - Multiple distinct non-empty CLASS values → ValueError. Refusing
@@ -711,6 +720,8 @@ def _resolve_block_class(db: Session, trns_type: str, doc_num: str, spls: list) 
     distinct = sorted({n for n in raw_names if n})
 
     if not distinct:
+        if vendor is not None and vendor.default_class_id is not None:
+            return vendor.default_class_id
         return uncategorized_class_id(db)
 
     if len(distinct) > 1:
@@ -820,7 +831,7 @@ def _import_bill(db: Session, trns: dict, spls: list) -> Bill:
     # collapse to the entity-level Bill.class_id. If SPLs disagree on
     # CLASS we refuse rather than silently picking one — surfacing the
     # conflict is safer for financial data.
-    bill_class_id = _resolve_block_class(db, "BILL", doc_num, spls)
+    bill_class_id = _resolve_block_class(db, "BILL", doc_num, spls, vendor=vendor)
 
     bill_date = _parse_iif_date(trns.get("DATE", "")) or date.today()
     due_date = _parse_iif_date(trns.get("DUEDATE", ""))
