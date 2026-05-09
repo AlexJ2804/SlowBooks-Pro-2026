@@ -1,0 +1,99 @@
+/* ============================================================================
+ * Credit Scores tracker styles — phase 1.5 task 3.
+ * ============================================================================ */
+
+table.cs-grid {
+    width: auto;
+    border-collapse: collapse;
+    margin: 4px 0 12px 0;
+}
+
+table.cs-grid th,
+table.cs-grid td {
+    padding: 6px 10px;
+    border: 1px solid var(--panel-border, #d8dce4);
+    text-align: left;
+    vertical-align: top;
+}
+
+table.cs-grid thead th {
+    background: rgba(0, 0, 0, 0.03);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #6b7280);
+    text-align: center;
+}
+
+table.cs-grid th.cs-person {
+    font-weight: 700;
+    background: rgba(0, 0, 0, 0.03);
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-primary, #1a1a2e);
+    font-size: 12px;
+}
+
+td.cs-cell {
+    min-width: 130px;
+    background: #fff;
+}
+
+td.cs-cell.empty {
+    text-align: center;
+    color: var(--text-muted, #9ca3af);
+}
+
+.cs-score {
+    font-size: 22px;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-primary, #1a1a2e);
+    line-height: 1;
+}
+
+.cs-meta {
+    font-size: 10px;
+    color: var(--text-muted, #6b7280);
+    margin-top: 2px;
+}
+
+.bureau-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 8px;
+    text-transform: none;
+    letter-spacing: 0.02em;
+}
+
+table.cs-batch-table {
+    width: 100%;
+    margin: 8px 0;
+    border-collapse: collapse;
+}
+
+table.cs-batch-table th {
+    text-align: left;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #6b7280);
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--panel-border, #d8dce4);
+}
+
+table.cs-batch-table td {
+    padding: 4px 6px;
+}
+
+table.cs-batch-table input[type="number"] {
+    width: 90px;
+}
+
+table.cs-batch-table input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+}

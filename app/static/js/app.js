@@ -53,6 +53,8 @@ const App = {
         '/net-worth':     { page: 'net-worth',       label: 'Net Worth',          render: () => NetWorthPage.render() },
         // Phase 1.5 task 2 — airline miles
         '/miles':         { page: 'miles',           label: 'Airline Miles',      render: () => AirlineMilesPage.render() },
+        // Phase 1.5 task 3 — credit scores
+        '/credit-scores': { page: 'credit-scores',   label: 'Credit Scores',      render: () => CreditScoresPage.render() },
     },
 
     async navigate(hash) {
