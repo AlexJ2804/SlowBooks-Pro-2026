@@ -58,14 +58,27 @@ class BankTransaction(Base):
 
     # OFX/QFX import fields (Feature 18)
     import_id = Column(String(100), nullable=True)      # OFX FITID for dedup
-    import_source = Column(String(50), nullable=True)    # e.g. "ofx", "qfx"
+    import_source = Column(String(50), nullable=True)    # e.g. "ofx", "qfx", "pdf"
     match_status = Column(String(20), nullable=True)     # "auto", "manual", "unmatched"
+
+    # Phase 2: drill-back to the source PDF statement (issue #1).
+    # Nullable because OFX/QFX imports and manual entries don't have one.
+    statement_import_id = Column(
+        Integer,
+        ForeignKey("statement_imports.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     bank_account = relationship("BankAccount", back_populates="transactions")
     category_account = relationship("Account", foreign_keys=[category_account_id])
     transaction = relationship("Transaction", foreign_keys=[transaction_id])
+    statement_import = relationship(
+        "StatementImport",
+        back_populates="transactions",
+        foreign_keys=[statement_import_id],
+    )
 
 
 class Reconciliation(Base):

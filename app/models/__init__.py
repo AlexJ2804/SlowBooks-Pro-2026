@@ -48,6 +48,9 @@ from app.models.balance_snapshots import BalanceSnapshot
 # under dual-write until a follow-up migration drops them).
 from app.models.people import Person, AccountOwnership
 
+# Phase 2: PDF statement ingestion (issue #1).
+from app.models.statement_imports import StatementImport
+
 __all__ = [
     "Account", "Customer", "Vendor", "Item",
     "Transaction", "TransactionLine",
@@ -78,4 +81,6 @@ __all__ = [
     "Loan", "LoanAmortizationSchedule", "BalanceSnapshot",
     # Phase 1.5
     "Person", "AccountOwnership",
+    # Phase 2: PDF statement ingestion
+    "StatementImport",
 ]

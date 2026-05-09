@@ -69,6 +69,9 @@ from app.routes import credit_scores as credit_scores_route
 # Manual trigger for the weekly Gmail-receipts -> IIF -> import pipeline.
 # Same code path as the APScheduler cron in services/scheduled_import.py.
 from app.routes import scheduled_import as scheduled_import_route
+# Phase 2: PDF statement ingestion (issue #1) — upload bank/CC PDFs,
+# vision-parse with Anthropic Sonnet 4.6, post into bank_transactions.
+from app.routes import statement_imports as statement_imports_route
 
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
@@ -151,6 +154,8 @@ app.include_router(people_route.router)
 app.include_router(airline_miles_route.router)
 app.include_router(credit_scores_route.router)
 app.include_router(scheduled_import_route.router)
+# Phase 2: PDF statement ingestion
+app.include_router(statement_imports_route.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)
@@ -162,9 +167,11 @@ start_scheduler()
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-# Ensure uploads directory exists
+# Ensure uploads directories exist
 uploads_dir = static_dir / "uploads"
 uploads_dir.mkdir(exist_ok=True)
+(uploads_dir / "statements").mkdir(exist_ok=True)
+(uploads_dir / "attachments").mkdir(exist_ok=True)
 
 # SPA entry point
 index_path = Path(__file__).parent.parent / "index.html"
