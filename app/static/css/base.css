@@ -1,0 +1,91 @@
+/* ============================================================================
+ * Slowbooks Pro 2026 — Base styles
+ * Reset, font import, typography defaults, focus ring.
+ * Loaded after tokens.css and before layout/components.
+ * ========================================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  background: var(--bg);
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Type scale — utility classes the page modules can opt into. */
+.sb-h1 {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+}
+.sb-h2 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+}
+.sb-crumb {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+}
+.sb-eyebrow {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+}
+.sb-mono {
+  font-family: var(--font-mono-ds);
+}
+.sb-mono-label {
+  font-family: var(--font-mono-ds);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: var(--ink-2);
+  text-transform: uppercase;
+}
+.sb-mono-num {
+  font-family: var(--font-mono-ds);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Focus ring — the only state with motion. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.sb-card *:focus-visible,
+.sb-btn:focus-visible,
+.sb-input:focus-visible,
+.sb-pill:focus-visible {
+  outline-offset: 1px;
+}
+
+/* The status-bar `Ready` dot lives in many pages; expose as a utility. */
+.sb-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--positive);
+  vertical-align: middle;
+  margin-right: 6px;
+}

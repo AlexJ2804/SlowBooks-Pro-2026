@@ -4,8 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Slowbooks Pro 2026</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Design system (cabin × boarding-pass).
+         tokens.css must load first so every layer below sees the same
+         custom properties; dark.css then tweaks the legacy QB token
+         aliases for [data-theme="dark"]. style.css is the legacy chrome
+         (it references the aliased tokens, so it picks up the cabin
+         palette automatically). The design-system layout/components
+         files load LAST so they win the cascade for any class they
+         restyle (#sidebar, #topbar, .btn, .card, …). -->
+    <link rel="stylesheet" href="/static/css/tokens.css">
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="/static/css/dark.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
 </head>
 <body>
     <!-- ================================================================
@@ -61,88 +75,91 @@
         <div id="main-area">
             <nav id="sidebar">
                 <div class="sidebar-header">
-                    <h1>Slowbooks Pro</h1>
-                    <div class="sidebar-edition">2026 Edition</div>
+                    <div class="sidebar-glyph"></div>
+                    <div>
+                        <h1>Slowbooks Pro</h1>
+                        <div class="sidebar-edition">2026 Edition</div>
+                    </div>
                 </div>
                 <ul class="nav-links">
                     <li><a href="#/" class="nav-link active" data-page="dashboard">
-                        <span class="nav-icon">&#9632;</span> Dashboard</a></li>
+                        <span class="nav-icon"></span> Dashboard</a></li>
 
-                    <li class="nav-section">Customers & Sales</li>
+                    <li class="nav-section">Customers &amp; Sales</li>
                     <li><a href="#/customers" class="nav-link" data-page="customers">
-                        <span class="nav-icon">&#9679;</span> Customers</a></li>
+                        <span class="nav-icon"></span> Customers</a></li>
                     <li><a href="#/invoices" class="nav-link" data-page="invoices">
-                        <span class="nav-icon">&#9830;</span> Invoices</a></li>
+                        <span class="nav-icon"></span> Invoices</a></li>
                     <li><a href="#/estimates" class="nav-link" data-page="estimates">
-                        <span class="nav-icon">&#9826;</span> Estimates</a></li>
+                        <span class="nav-icon"></span> Estimates</a></li>
                     <li><a href="#/payments" class="nav-link" data-page="payments">
-                        <span class="nav-icon">&#9733;</span> Payments</a></li>
+                        <span class="nav-icon"></span> Payments</a></li>
                     <li><a href="#/recurring" class="nav-link" data-page="recurring">
-                        <span class="nav-icon">&#8634;</span> Recurring Invoices</a></li>
+                        <span class="nav-icon"></span> Recurring Invoices</a></li>
                     <li><a href="#/credit-memos" class="nav-link" data-page="credit-memos">
-                        <span class="nav-icon">&#8722;</span> Credit Memos</a></li>
+                        <span class="nav-icon"></span> Credit Memos</a></li>
                     <li><a href="#/batch-payments" class="nav-link" data-page="batch-payments">
-                        <span class="nav-icon">&#10003;</span> Batch Payments</a></li>
+                        <span class="nav-icon"></span> Batch Payments</a></li>
 
-                    <li class="nav-section">Vendors & Payables</li>
+                    <li class="nav-section">Vendors &amp; Payables</li>
                     <li><a href="#/vendors" class="nav-link" data-page="vendors">
-                        <span class="nav-icon">&#9670;</span> Vendors</a></li>
+                        <span class="nav-icon"></span> Vendors</a></li>
                     <li><a href="#/purchase-orders" class="nav-link" data-page="purchase-orders">
-                        <span class="nav-icon">&#9997;</span> Purchase Orders</a></li>
+                        <span class="nav-icon"></span> Purchase Orders</a></li>
                     <li><a href="#/bills" class="nav-link" data-page="bills">
-                        <span class="nav-icon">&#9830;</span> Bills</a></li>
+                        <span class="nav-icon"></span> Bills</a></li>
 
                     <li class="nav-section">Manage</li>
                     <li><a href="#/items" class="nav-link" data-page="items">
-                        <span class="nav-icon">&#9642;</span> Items & Services</a></li>
+                        <span class="nav-icon"></span> Items &amp; Services</a></li>
                     <li><a href="#/employees" class="nav-link" data-page="employees">
-                        <span class="nav-icon">&#9786;</span> Employees</a></li>
+                        <span class="nav-icon"></span> Employees</a></li>
                     <li><a href="#/payroll" class="nav-link" data-page="payroll">
-                        <span class="nav-icon">&#9733;</span> Payroll</a></li>
+                        <span class="nav-icon"></span> Payroll</a></li>
 
                     <li class="nav-section">Banking</li>
                     <li><a href="#/banking" class="nav-link" data-page="banking">
-                        <span class="nav-icon">&#9638;</span> Bank Accounts</a></li>
+                        <span class="nav-icon"></span> Bank Accounts</a></li>
                     <li><a href="#/bank-rules" class="nav-link" data-page="bank-rules">
-                        <span class="nav-icon">&#9889;</span> Bank Rules</a></li>
+                        <span class="nav-icon"></span> Bank Rules</a></li>
                     <li><a href="#/deposits" class="nav-link" data-page="deposits">
-                        <span class="nav-icon">&#9660;</span> Make Deposits</a></li>
+                        <span class="nav-icon"></span> Make Deposits</a></li>
                     <li><a href="#/check-register" class="nav-link" data-page="check-register">
-                        <span class="nav-icon">&#9745;</span> Check Register</a></li>
+                        <span class="nav-icon"></span> Check Register</a></li>
                     <li><a href="#/cc-charges" class="nav-link" data-page="cc-charges">
-                        <span class="nav-icon">&#9830;</span> CC Charges</a></li>
+                        <span class="nav-icon"></span> CC Charges</a></li>
 
                     <li class="nav-section">Accounting</li>
                     <li><a href="#/accounts" class="nav-link" data-page="accounts">
-                        <span class="nav-icon">&#9776;</span> Chart of Accounts</a></li>
+                        <span class="nav-icon"></span> Chart of Accounts</a></li>
                     <li><a href="#/journal" class="nav-link" data-page="journal">
-                        <span class="nav-icon">&#9998;</span> Journal Entries</a></li>
+                        <span class="nav-icon"></span> Journal Entries</a></li>
                     <li><a href="#/budgets" class="nav-link" data-page="budgets">
-                        <span class="nav-icon">&#9783;</span> Budgets</a></li>
+                        <span class="nav-icon"></span> Budgets</a></li>
                     <li><a href="#/reports" class="nav-link" data-page="reports">
-                        <span class="nav-icon">&#9783;</span> Reports</a></li>
+                        <span class="nav-icon"></span> Reports</a></li>
                     <li><a href="#/tax" class="nav-link" data-page="tax">
-                        <span class="nav-icon">&#9783;</span> Tax Reports</a></li>
+                        <span class="nav-icon"></span> Tax Reports</a></li>
 
                     <li class="nav-section">Travel</li>
                     <li><a href="#/miles" class="nav-link" data-page="miles">
-                        <span class="nav-icon">&#9992;</span> Airline Miles</a></li>
+                        <span class="nav-icon"></span> Airline Miles</a></li>
 
                     <li class="nav-section">Interop</li>
                     <li><a href="#/iif" class="nav-link" data-page="iif">
-                        <span class="nav-icon">&#8644;</span> QuickBooks Interop</a></li>
+                        <span class="nav-icon"></span> QuickBooks Interop</a></li>
                     <li><a href="#/qbo" class="nav-link" data-page="qbo">
-                        <span class="nav-icon">&#9729;</span> QuickBooks Online</a></li>
+                        <span class="nav-icon"></span> QuickBooks Online</a></li>
                     <li><a href="#/csv" class="nav-link" data-page="csv">
-                        <span class="nav-icon">&#8644;</span> CSV Import/Export</a></li>
+                        <span class="nav-icon"></span> CSV Import/Export</a></li>
 
                     <li class="nav-section">System</li>
                     <li><a href="#/settings" class="nav-link" data-page="settings">
-                        <span class="nav-icon">&#9881;</span> Settings</a></li>
+                        <span class="nav-icon"></span> Settings</a></li>
                     <li><a href="#/audit" class="nav-link" data-page="audit">
-                        <span class="nav-icon">&#9783;</span> Audit Log</a></li>
+                        <span class="nav-icon"></span> Audit Log</a></li>
                     <li><a href="#/companies" class="nav-link" data-page="companies">
-                        <span class="nav-icon">&#9632;</span> Companies</a></li>
+                        <span class="nav-icon"></span> Companies</a></li>
                 </ul>
                 <div class="sidebar-footer">
                     Build 12.0.3190-R<br>

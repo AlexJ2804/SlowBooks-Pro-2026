@@ -119,43 +119,62 @@ const App = {
     async renderDashboard() {
         const data = await API.get('/dashboard');
 
-        let recentInv = data.recent_invoices.map(inv =>
-            `<tr>
-                <td><strong>${escapeHtml(inv.invoice_number)}</strong></td>
+        const recentInvBody = data.recent_invoices.map(inv =>
+            `<tr class="clickable" onclick="App.navigate('#/invoices')">
+                <td class="id"><strong>${escapeHtml(inv.invoice_number)}</strong></td>
                 <td>${formatDate(inv.date)}</td>
                 <td>${statusBadge(inv.status)}</td>
                 <td class="amount">${formatCurrency(inv.total)}</td>
             </tr>`
-        ).join('') || '<tr><td colspan="4" style="color:var(--text-muted); font-size:11px;">No invoices yet &mdash; use Create Invoice to get started</td></tr>';
+        ).join('') || '<tr><td colspan="4" style="color:var(--ink-3); padding:18px; text-align:center;">No invoices yet — use Create Invoice to get started</td></tr>';
 
-        let recentPay = data.recent_payments.map(p =>
-            `<tr>
+        const recentPayBody = data.recent_payments.map(p =>
+            `<tr class="clickable" onclick="App.navigate('#/payments')">
                 <td>${formatDate(p.date)}</td>
                 <td>${escapeHtml(p.method || '')}</td>
                 <td class="amount">${formatCurrency(p.amount)}</td>
             </tr>`
-        ).join('') || '<tr><td colspan="3" style="color:var(--text-muted); font-size:11px;">No payments recorded yet</td></tr>';
+        ).join('') || '<tr><td colspan="3" style="color:var(--ink-3); padding:18px; text-align:center;">No payments recorded yet</td></tr>';
 
-        let bankCards = data.bank_balances.map(ba =>
-            `<div class="card" style="cursor:pointer" onclick="App.navigate('#/banking')">
-                <div class="card-header">${escapeHtml(ba.name)}</div>
-                <div class="card-value">${formatCurrency(ba.balance)}</div>
-            </div>`
-        ).join('');
+        let bankCards = data.bank_balances.map(ba => {
+            const balanceCls = ba.balance < 0 ? ' negative' : '';
+            return `
+                <article class="sb-card"
+                    onclick="App.navigate('#/banking')" role="button" tabindex="0"
+                    style="cursor:pointer;">
+                    <span class="sb-notch-top"></span>
+                    <span class="sb-notch-bot"></span>
+                    <div class="sb-card-stub">
+                        <div class="sb-card-tile letter">${escapeHtml((ba.name || 'B').charAt(0).toUpperCase())}</div>
+                        <div>
+                            <div class="sb-card-class">Bank Account</div>
+                            <div class="sb-card-name">${escapeHtml(ba.name || '')}</div>
+                        </div>
+                        <div class="sb-card-meta">
+                            <div class="lbl">Current balance</div>
+                            <div class="val${balanceCls}">${formatCurrency(ba.balance)}</div>
+                        </div>
+                    </div>
+                    <div class="sb-card-body">
+                        <div class="sb-card-row" style="grid-template-columns:1fr;">
+                            <span style="color:var(--ink-2); font-size:13px;">
+                                ${escapeHtml(ba.bank_name || '')}${ba.last_four ? ` &middot; <span class="sb-mono">****${escapeHtml(ba.last_four)}</span>` : ''}
+                            </span>
+                        </div>
+                    </div>
+                </article>`;
+        }).join('');
 
         if (!bankCards) {
-            bankCards = `<div class="card">
-                <div class="card-header">No Bank Accounts</div>
-                <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">
-                    Go to Banking to set up an account</div>
+            bankCards = `<div class="empty-state" style="margin:0;">
+                <p>No bank accounts yet — go to Banking to set one up.</p>
             </div>`;
         }
 
-        // Feature 3: Dashboard Charts
+        // AR Aging + Monthly Revenue charts (optional)
         let chartsHtml = '';
         try {
             const charts = await API.get('/dashboard/charts');
-            // AR Aging Bar Chart
             const agingTotal = (charts.aging_current || 0) + (charts.aging_30 || 0) + (charts.aging_60 || 0) + (charts.aging_90 || 0);
             if (agingTotal > 0) {
                 const pctCurrent = ((charts.aging_current / agingTotal) * 100).toFixed(1);
@@ -163,62 +182,70 @@ const App = {
                 const pct60 = ((charts.aging_60 / agingTotal) * 100).toFixed(1);
                 const pct90 = ((charts.aging_90 / agingTotal) * 100).toFixed(1);
                 chartsHtml += `
-                    <div class="dashboard-section">
-                        <h3>AR Aging</h3>
-                        <div class="chart-bar-container">
-                            <div class="chart-bar" style="display:flex; height:28px; border-radius:4px; overflow:hidden;">
-                                ${pctCurrent > 0 ? `<div style="width:${pctCurrent}%; background:var(--success);" title="Current: ${formatCurrency(charts.aging_current)}"></div>` : ''}
-                                ${pct30 > 0 ? `<div style="width:${pct30}%; background:var(--qb-gold);" title="1-30 days: ${formatCurrency(charts.aging_30)}"></div>` : ''}
-                                ${pct60 > 0 ? `<div style="width:${pct60}%; background:#f97316;" title="31-60 days: ${formatCurrency(charts.aging_60)}"></div>` : ''}
-                                ${pct90 > 0 ? `<div style="width:${pct90}%; background:var(--danger);" title="61+ days: ${formatCurrency(charts.aging_90)}"></div>` : ''}
+                    <section class="sb-section">
+                        <h3 class="sb-section-title">AR Aging</h3>
+                        <div class="card" style="padding:18px;">
+                            <div style="display:flex; height:28px; border-radius:6px; overflow:hidden; background:var(--rule-sft);">
+                                ${pctCurrent > 0 ? `<div style="width:${pctCurrent}%; background:var(--positive);" title="Current: ${formatCurrency(charts.aging_current)}"></div>` : ''}
+                                ${pct30 > 0 ? `<div style="width:${pct30}%; background:var(--warning);" title="1-30 days: ${formatCurrency(charts.aging_30)}"></div>` : ''}
+                                ${pct60 > 0 ? `<div style="width:${pct60}%; background:color-mix(in oklab, var(--warning) 60%, var(--negative));" title="31-60 days: ${formatCurrency(charts.aging_60)}"></div>` : ''}
+                                ${pct90 > 0 ? `<div style="width:${pct90}%; background:var(--negative);" title="61+ days: ${formatCurrency(charts.aging_90)}"></div>` : ''}
                             </div>
-                            <div class="chart-legend" style="display:flex; gap:12px; margin-top:6px; font-size:10px;">
-                                <span><span style="color:var(--success);">&#9632;</span> Current ${formatCurrency(charts.aging_current)}</span>
-                                <span><span style="color:var(--qb-gold);">&#9632;</span> 1-30 ${formatCurrency(charts.aging_30)}</span>
-                                <span><span style="color:#f97316;">&#9632;</span> 31-60 ${formatCurrency(charts.aging_60)}</span>
-                                <span><span style="color:var(--danger);">&#9632;</span> 61+ ${formatCurrency(charts.aging_90)}</span>
+                            <div style="display:flex; gap:18px; margin-top:12px; font-size:12px; color:var(--ink-2); flex-wrap:wrap;">
+                                <span><span style="color:var(--positive);">&#9632;</span> Current <span class="sb-mono-num">${formatCurrency(charts.aging_current)}</span></span>
+                                <span><span style="color:var(--warning);">&#9632;</span> 1-30 <span class="sb-mono-num">${formatCurrency(charts.aging_30)}</span></span>
+                                <span><span style="color:color-mix(in oklab, var(--warning) 60%, var(--negative));">&#9632;</span> 31-60 <span class="sb-mono-num">${formatCurrency(charts.aging_60)}</span></span>
+                                <span><span style="color:var(--negative);">&#9632;</span> 61+ <span class="sb-mono-num">${formatCurrency(charts.aging_90)}</span></span>
                             </div>
                         </div>
-                    </div>`;
+                    </section>`;
             }
 
-            // Monthly Revenue Trend
             if (charts.monthly_revenue && charts.monthly_revenue.length > 0) {
                 const maxRev = Math.max(...charts.monthly_revenue.map(m => m.amount), 1);
                 const bars = charts.monthly_revenue.map(m => {
                     const pct = Math.max((m.amount / maxRev) * 100, 2);
-                    return `<div class="chart-bar-col" style="flex:1; text-align:center;">
-                        <div style="height:100px; display:flex; align-items:flex-end; justify-content:center;">
-                            <div style="width:80%; background:var(--qb-blue); height:${pct}%; border-radius:2px 2px 0 0;"
+                    return `<div style="flex:1; text-align:center;">
+                        <div style="height:120px; display:flex; align-items:flex-end; justify-content:center;">
+                            <div style="width:70%; background:var(--accent); height:${pct}%; border-radius:4px 4px 0 0;"
                                  title="${m.month}: ${formatCurrency(m.amount)}"></div>
                         </div>
-                        <div style="font-size:9px; color:var(--text-muted); margin-top:4px;">${m.month}</div>
+                        <div class="sb-mono" style="font-size:10px; color:var(--ink-3); margin-top:6px; letter-spacing:0.08em; text-transform:uppercase;">${m.month}</div>
                     </div>`;
                 }).join('');
                 chartsHtml += `
-                    <div class="dashboard-section">
-                        <h3>Monthly Revenue (Last 12 Months)</h3>
-                        <div style="display:flex; gap:2px; align-items:flex-end;">${bars}</div>
-                    </div>`;
+                    <section class="sb-section">
+                        <h3 class="sb-section-title">Monthly Revenue (Last 12 Months)</h3>
+                        <div class="card" style="padding:20px;">
+                            <div style="display:flex; gap:6px; align-items:flex-end;">${bars}</div>
+                        </div>
+                    </section>`;
             }
         } catch (e) { /* charts endpoint not available yet — that's fine */ }
 
-        return `
-            <div class="page-header">
-                <h2>Company Snapshot</h2>
-                <div style="font-size:10px; color:var(--text-muted);">
-                    Slowbooks Pro 2026 &mdash; Build 12.0.3190-R
-                </div>
-            </div>
+        const overdueChip = data.overdue_count > 0
+            ? `<span class="sb-chip danger" style="margin-left:8px;">${data.overdue_count} overdue</span>`
+            : '';
 
-            <div class="card-grid">
+        return `
+            <header class="sb-head">
+                <div class="sb-head-row">
+                    <div>
+                        <div class="sb-crumb">Books &middot; Overview</div>
+                        <h1>Company Snapshot</h1>
+                        <div class="sb-sub">Slowbooks Pro 2026 &middot; Build 12.0.3190-R</div>
+                    </div>
+                </div>
+            </header>
+
+            <div class="sb-grid cols-4" style="padding-bottom:24px;">
                 <div class="card">
                     <div class="card-header">Total Receivables</div>
                     <div class="card-value">${formatCurrency(data.total_receivables)}</div>
                 </div>
                 <div class="card">
-                    <div class="card-header">Overdue Invoices</div>
-                    <div class="card-value" ${data.overdue_count > 0 ? 'style="color:var(--qb-red)"' : ''}>${data.overdue_count}</div>
+                    <div class="card-header">Overdue Invoices ${overdueChip}</div>
+                    <div class="card-value">${data.overdue_count}</div>
                 </div>
                 <div class="card">
                     <div class="card-header">Active Customers</div>
@@ -230,28 +257,32 @@ const App = {
                 </div>` : ''}
             </div>
 
-            <div class="dashboard-section">
-                <h3>Bank Balances</h3>
-                <div class="card-grid">${bankCards}</div>
-            </div>
+            <section class="sb-section">
+                <h3 class="sb-section-title">Bank Balances</h3>
+                <div class="sb-grid" style="padding-top:0;">${bankCards}</div>
+            </section>
 
             ${chartsHtml}
 
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-                <div class="dashboard-section">
-                    <h3>Recent Invoices</h3>
-                    <div class="table-container"><table>
-                        <thead><tr><th>#</th><th>Date</th><th>Status</th><th class="amount">Total</th></tr></thead>
-                        <tbody>${recentInv}</tbody>
-                    </table></div>
-                </div>
-                <div class="dashboard-section">
-                    <h3>Recent Payments</h3>
-                    <div class="table-container"><table>
-                        <thead><tr><th>Date</th><th>Method</th><th class="amount">Amount</th></tr></thead>
-                        <tbody>${recentPay}</tbody>
-                    </table></div>
-                </div>
+            <div class="sb-grid" style="padding-bottom:32px;">
+                <section>
+                    <h3 class="sb-section-title">Recent Invoices</h3>
+                    <div class="sb-table-wrap" style="margin:0;">
+                        <table class="sb-table">
+                            <thead><tr><th>Number</th><th>Date</th><th>Status</th><th class="amount">Total</th></tr></thead>
+                            <tbody>${recentInvBody}</tbody>
+                        </table>
+                    </div>
+                </section>
+                <section>
+                    <h3 class="sb-section-title">Recent Payments</h3>
+                    <div class="sb-table-wrap" style="margin:0;">
+                        <table class="sb-table">
+                            <thead><tr><th>Date</th><th>Method</th><th class="amount">Amount</th></tr></thead>
+                            <tbody>${recentPayBody}</tbody>
+                        </table>
+                    </div>
+                </section>
             </div>`;
     },
 

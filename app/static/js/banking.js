@@ -10,27 +10,94 @@
 const BankingPage = {
     async render() {
         const accounts = await API.get('/banking/accounts');
+        const totalCash = accounts.reduce((s, ba) => s + (Number(ba.balance) || 0), 0);
+
         let html = `
-            <div class="page-header">
-                <h2>Bank Accounts</h2>
-                <button class="btn btn-primary" onclick="BankingPage.showAccountForm()">+ New Bank Account</button>
+            <header class="sb-head">
+                <div class="sb-head-row">
+                    <div>
+                        <div class="sb-crumb">Banking &middot; Accounts</div>
+                        <h1>Bank Accounts</h1>
+                        <div class="sb-sub">${accounts.length} account${accounts.length === 1 ? '' : 's'}</div>
+                    </div>
+                    <div class="sb-head-aside">
+                        <div class="lbl">Total cash on hand</div>
+                        <div class="val">${formatCurrency(totalCash)}</div>
+                    </div>
+                </div>
+            </header>
+            <div class="sb-segs">
+                <button class="sb-pill on">All accounts</button>
+                <button class="sb-pill">Checking</button>
+                <button class="sb-pill">Savings</button>
+                <button class="sb-pill sb-grow" onclick="App.navigate('#/bank-rules')">Bank rules</button>
+                <button class="sb-pill primary" onclick="BankingPage.showAccountForm()">+ New Bank Account</button>
             </div>`;
 
         if (accounts.length === 0) {
-            html += `<div class="empty-state"><p>No bank accounts yet</p></div>`;
-        } else {
-            html += `<div class="card-grid">`;
-            for (const ba of accounts) {
-                html += `<div class="card" style="cursor:pointer" onclick="BankingPage.viewRegister(${ba.id})">
-                    <div class="card-header">${escapeHtml(ba.name)}</div>
-                    <div class="card-value">${formatCurrency(ba.balance)}</div>
-                    <div style="font-size:12px; color:var(--gray-400); margin-top:4px;">
-                        ${escapeHtml(ba.bank_name || '')} ${ba.last_four ? '****' + ba.last_four : ''}
-                    </div>
-                </div>`;
-            }
-            html += `</div>`;
+            html += `<div class="empty-state"><p>No bank accounts yet — use <strong>+ New Bank Account</strong> to add one.</p></div>`;
+            return html;
         }
+
+        // Pull a few recent transactions per account in parallel for the card body.
+        const recentByAccount = await Promise.all(
+            accounts.map(ba =>
+                API.get(`/banking/transactions?bank_account_id=${ba.id}&limit=4`)
+                    .then(txns => ({ id: ba.id, txns: (txns || []).slice(0, 4) }))
+                    .catch(() => ({ id: ba.id, txns: [] }))
+            )
+        );
+        const txnsById = Object.fromEntries(recentByAccount.map(r => [r.id, r.txns]));
+
+        html += `<div class="sb-grid">`;
+        for (const ba of accounts) {
+            const name = ba.name || 'Account';
+            const initial = name.charAt(0).toUpperCase();
+            const balance = Number(ba.balance) || 0;
+            const txns = txnsById[ba.id] || [];
+
+            const txnRows = txns.length === 0
+                ? `<div class="sb-card-row" style="grid-template-columns:1fr;">
+                       <span style="color:var(--ink-3); font-size:12.5px; padding:6px 0;">No recent transactions</span>
+                   </div>`
+                : txns.map(t => {
+                    const amt = Number(t.amount) || 0;
+                    const sign = amt < 0 ? '' : '';
+                    const cls = amt < 0 ? '' : '';
+                    return `<div class="sb-card-row" style="grid-template-columns:62px 1fr auto;">
+                        <span class="sb-mono" style="font-size:11.5px; color:var(--ink-3);">${formatDate(t.date)}</span>
+                        <span style="font-size:13px; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(t.payee || t.description || '')}</span>
+                        <span class="bal" style="color:${amt < 0 ? 'var(--negative)' : 'var(--positive)'};">${formatCurrency(amt)}</span>
+                    </div>`;
+                  }).join('');
+
+            html += `<article class="sb-card" onclick="BankingPage.viewRegister(${ba.id})" role="button" tabindex="0" style="cursor:pointer;">
+                <span class="sb-notch-top"></span>
+                <span class="sb-notch-bot"></span>
+                <div class="sb-card-stub">
+                    <div class="sb-card-tile letter">${escapeHtml(initial)}</div>
+                    <div>
+                        <div class="sb-card-class">${escapeHtml(ba.account_type ? ba.account_type : 'Bank Account')}</div>
+                        <div class="sb-card-name">${escapeHtml(name)}</div>
+                    </div>
+                    <div class="sb-card-meta">
+                        <div class="lbl">Current balance</div>
+                        <div class="val">${formatCurrency(balance)}</div>
+                    </div>
+                </div>
+                <div class="sb-card-body">
+                    <div class="sb-card-row" style="grid-template-columns:80px 1fr;">
+                        <span class="sb-mono-label">Bank</span>
+                        <span style="font-size:13px; color:var(--ink-2);">
+                            ${escapeHtml(ba.bank_name || '—')}
+                            ${ba.last_four ? `<span class="sb-mono" style="margin-left:6px;">****${escapeHtml(ba.last_four)}</span>` : ''}
+                        </span>
+                    </div>
+                    ${txnRows}
+                </div>
+            </article>`;
+        }
+        html += `</div>`;
         return html;
     },
 

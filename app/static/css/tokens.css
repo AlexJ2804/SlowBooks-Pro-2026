@@ -1,0 +1,135 @@
+/* ============================================================================
+ * Slowbooks Pro 2026 — Design tokens
+ *
+ * Single source of truth for palette, typography, geometry, motion. Tokens
+ * are derived from the Cabin × Boarding Pass design (variant-hybrid.jsx +
+ * variant-cabin.jsx). Don't paste hex values into other CSS files; reference
+ * these tokens.
+ *
+ * Per-object accents (airline brand colour, vendor category, account type,
+ * etc.) are passed in as inline `--accent` / `--accent-soft` on the card
+ * element — the global `--accent` is the Slowbooks brand blue used for
+ * generic links, active nav, and primary CTAs.
+ *
+ * Legacy QB2003 tokens (--qb-navy, --text-primary, --content-bg, …) used by
+ * the existing style.css are aliased to design tokens at the bottom so
+ * unrefitted pages pick up the cabin palette automatically. Don't add new
+ * --qb-* references.
+ * ========================================================================= */
+
+:root {
+  /* === Palette === */
+  --bg:           #F4F5F7;   /* app background */
+  --card:         #FFFFFF;   /* card / surface */
+  --ink:          #0E1726;   /* primary text */
+  --ink-2:        #5A6478;   /* secondary text */
+  --ink-3:        #8A93A6;   /* tertiary / meta */
+  --rule:         #E6E9EF;   /* hairline borders */
+  --rule-sft:     #EEF0F4;   /* dotted dividers inside cards */
+  --accent:       #1F4FA8;   /* Slowbooks brand blue */
+  --accent-soft:  #EAF1FB;   /* active nav background, focus tints */
+  --positive:     #2E7D5B;
+  --negative:     #C8102E;
+  --warning:      #B8860B;
+
+  /* === Geometry === */
+  --radius-card:  14px;      /* large surfaces */
+  --radius-input: 7px;       /* small buttons, inputs, chips */
+  --radius-pill:  999px;     /* pills / segmented controls */
+  --radius-tile:  12px;      /* logo tile inside a stub */
+
+  /* === Shadow === */
+  --shadow-card:  0 1px 2px rgba(15, 23, 38, 0.04);
+
+  /* === Spacing === */
+  --pad-page-x:      32px;
+  --pad-page-top:    26px;
+  --pad-page-bottom: 32px;
+  --gap-grid:        18px;
+
+  /* === Typography === */
+  --font-ui:        'Inter Tight', system-ui, -apple-system, sans-serif;
+  --font-mono-ds:   'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+
+  /* === Layout === */
+  --sidebar-width:    240px;
+  --topbar-height:    40px;
+  --statusbar-height: 28px;
+
+  /* ----------------------------------------------------------------------
+   * Legacy QB2003 token aliases.
+   *
+   * The original style.css and ~30 page modules still reference these. Rebind
+   * each to a design token so they stop being a separate palette — the entire
+   * app speaks one language without touching the legacy rules.
+   * ---------------------------------------------------------------------- */
+  --qb-navy:        var(--accent);
+  --qb-navy-dark:   #173E85;
+  --qb-navy-mid:    #1F4FA8;
+  --qb-blue:        var(--accent);
+  --qb-blue-light:  #2A66C9;
+  --qb-blue-accent: #5B9BD5;
+  --qb-teal:        #4F7F8F;
+  --qb-green:       var(--positive);
+  --qb-green-dark:  #246A4A;
+  --qb-gold:        var(--warning);
+  --qb-red:         var(--negative);
+  --qb-orange:      #B85A1E;
+
+  --invoice-bg:     var(--card);
+  --estimate-bg:    var(--card);
+  --form-bg:        var(--card);
+
+  --toolbar-bg:     var(--card);
+  --toolbar-border: var(--rule);
+  --content-bg:     var(--bg);
+  --panel-bg:       var(--card);
+  --panel-border:   var(--rule);
+  --input-border:   var(--rule);
+  --input-focus:    var(--accent);
+
+  --text-primary:   var(--ink);
+  --text-secondary: var(--ink-2);
+  --text-muted:     var(--ink-3);
+  --text-light:     var(--ink-3);
+  --text-on-dark:   #E0E4EC;
+  --text-on-navy:   #FFFFFF;
+
+  --primary-light:  var(--accent-soft);
+  --gray-50:        #F9FAFB;
+  --gray-100:       #F3F4F6;
+  --gray-200:       var(--rule);
+  --gray-300:       #D1D5DB;
+  --gray-400:       var(--ink-3);
+  --gray-500:       var(--ink-2);
+  --gray-600:       var(--ink-2);
+
+  --success:        var(--positive);
+  --danger:         var(--negative);
+
+  --font:           var(--font-ui);
+  --font-mono:      var(--font-mono-ds);
+}
+
+/* Dark-mode overrides — keep the cabin geometry, invert ink/bg. */
+[data-theme="dark"] {
+  --bg:           #14161C;
+  --card:         #1E2028;
+  --ink:          #E0E4EC;
+  --ink-2:        #A0A8B8;
+  --ink-3:        #7A8498;
+  --rule:         #2E3240;
+  --rule-sft:     #242830;
+  --accent:       #6BB3E8;
+  --accent-soft:  #1E2838;
+  --positive:     #4CAF7A;
+  --negative:     #E05555;
+  --warning:      #E0A840;
+
+  --shadow-card:  0 1px 2px rgba(0, 0, 0, 0.30);
+
+  --invoice-bg:   var(--card);
+  --estimate-bg:  var(--card);
+  --form-bg:      var(--card);
+  --gray-100:     #242830;
+}

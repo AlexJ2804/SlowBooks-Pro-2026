@@ -8,34 +8,85 @@
 const VendorsPage = {
     async render() {
         const vendors = await API.get('/vendors');
+        const totalPayable = vendors.reduce((s, v) => s + (Number(v.balance) || 0), 0);
+        const withBalance = vendors.filter(v => Number(v.balance) > 0).length;
+        const flagged1099 = vendors.filter(v => v.is_1099_vendor).length;
+
         let html = `
-            <div class="page-header">
-                <h2>Vendors</h2>
-                <button class="btn btn-primary" onclick="VendorsPage.showForm()">+ New Vendor</button>
+            <header class="sb-head">
+                <div class="sb-head-row">
+                    <div>
+                        <div class="sb-crumb">Vendors &amp; Payables</div>
+                        <h1>Vendors</h1>
+                        <div class="sb-sub">${vendors.length} vendor${vendors.length === 1 ? '' : 's'} &middot; ${withBalance} owed &middot; ${flagged1099} flagged 1099</div>
+                    </div>
+                    <div class="sb-head-aside">
+                        <div class="lbl">Total payable</div>
+                        <div class="val">${formatCurrency(totalPayable)}</div>
+                    </div>
+                </div>
+            </header>
+            <div class="sb-segs">
+                <button class="sb-pill on">All</button>
+                <button class="sb-pill">With balance</button>
+                <button class="sb-pill">1099</button>
+                <button class="sb-pill sb-grow">Sort: Balance &darr;</button>
+                <button class="sb-pill primary" onclick="VendorsPage.showForm()">+ New Vendor</button>
             </div>`;
 
         if (vendors.length === 0) {
-            html += `<div class="empty-state"><p>No vendors yet</p></div>`;
-        } else {
-            html += `<div class="table-container"><table>
-                <thead><tr>
-                    <th>Name</th><th>Company</th><th>Phone</th><th>Email</th>
-                    <th class="amount">Balance</th><th>Actions</th>
-                </tr></thead><tbody>`;
-            for (const v of vendors) {
-                html += `<tr>
-                    <td><strong>${escapeHtml(v.name)}</strong></td>
-                    <td>${escapeHtml(v.company) || ''}</td>
-                    <td>${escapeHtml(v.phone) || ''}</td>
-                    <td>${escapeHtml(v.email) || ''}</td>
-                    <td class="amount">${formatCurrency(v.balance)}</td>
-                    <td class="actions">
-                        <button class="btn btn-sm btn-secondary" onclick="VendorsPage.showForm(${v.id})">Edit</button>
-                    </td>
-                </tr>`;
-            }
-            html += `</tbody></table></div>`;
+            html += `<div class="empty-state"><p>No vendors yet — use <strong>+ New Vendor</strong> to add one.</p></div>`;
+            return html;
         }
+
+        html += `<div class="sb-grid">`;
+        for (const v of vendors) {
+            const name = v.name || '';
+            const initial = name.charAt(0).toUpperCase() || '?';
+            const balance = Number(v.balance) || 0;
+            const accent = v.is_1099_vendor ? '#B8860B' : '';
+            const accentSoft = v.is_1099_vendor ? 'color-mix(in oklab, #B8860B 12%, var(--card))' : '';
+            const accentStyle = accent ? `--accent:${accent};--accent-soft:${accentSoft};` : '';
+            html += `<article class="sb-card" style="${accentStyle}">
+                <span class="sb-notch-top"></span>
+                <span class="sb-notch-bot"></span>
+                <div class="sb-card-stub">
+                    <div class="sb-card-tile letter">${escapeHtml(initial)}</div>
+                    <div>
+                        <div class="sb-card-class">${v.is_1099_vendor ? '1099 Vendor' : 'Vendor'}</div>
+                        <div class="sb-card-name">${escapeHtml(name)}</div>
+                    </div>
+                    <div class="sb-card-meta">
+                        <div class="lbl">Open balance</div>
+                        <div class="val">${formatCurrency(balance)}</div>
+                    </div>
+                </div>
+                <div class="sb-card-body">
+                    ${v.company ? `<div class="sb-card-row" style="grid-template-columns:80px 1fr;">
+                        <span class="sb-mono-label">Company</span>
+                        <span style="font-size:13px; color:var(--ink);">${escapeHtml(v.company)}</span>
+                    </div>` : ''}
+                    ${v.email ? `<div class="sb-card-row" style="grid-template-columns:80px 1fr;">
+                        <span class="sb-mono-label">Email</span>
+                        <span style="font-size:13px; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(v.email)}</span>
+                    </div>` : ''}
+                    ${v.phone ? `<div class="sb-card-row" style="grid-template-columns:80px 1fr;">
+                        <span class="sb-mono-label">Phone</span>
+                        <span class="sb-mono" style="font-size:12.5px; color:var(--ink-2);">${escapeHtml(v.phone)}</span>
+                    </div>` : ''}
+                    ${v.terms ? `<div class="sb-card-row" style="grid-template-columns:80px 1fr;">
+                        <span class="sb-mono-label">Terms</span>
+                        <span style="font-size:13px; color:var(--ink-2);">${escapeHtml(v.terms)}</span>
+                    </div>` : ''}
+                    <div class="sb-card-row" style="grid-template-columns:1fr auto auto; padding-top:11px; gap:8px;">
+                        <span style="font-size:11.5px; color:var(--ink-3); letter-spacing:0.04em; text-transform:uppercase;">${v.is_1099_vendor ? '1099 reportable' : 'Standard'}</span>
+                        <button class="btn btn-sm btn-secondary" onclick="VendorsPage.showForm(${v.id})">Edit</button>
+                        <button class="btn btn-sm btn-primary" onclick="App.navigate('#/bills')">New bill</button>
+                    </div>
+                </div>
+            </article>`;
+        }
+        html += `</div>`;
         return html;
     },
 
