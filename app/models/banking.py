@@ -31,7 +31,10 @@ class BankAccount(Base):
     name = Column(String(200), nullable=False)
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)  # linked COA account
     bank_name = Column(String(200), nullable=True)
-    last_four = Column(String(4), nullable=True)
+    # Widened from varchar(4) in alembic o7f8g9h0i1j2 to fit credit-union
+    # member-share identifiers like '75850-0002' alongside the original
+    # last-4-card-digits use case.
+    last_four = Column(String(20), nullable=True)
     balance = Column(Numeric(12, 2), default=0)
     is_active = Column(Boolean, default=True)
 
