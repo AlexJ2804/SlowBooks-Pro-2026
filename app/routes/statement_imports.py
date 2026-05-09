@@ -56,6 +56,28 @@ UPLOAD_BASE = (STATIC_BASE / "uploads" / "statements").resolve()
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9 ._()\-]")
 _MAX_PDF_BYTES = 32 * 1024 * 1024
 
+# Cross-statement dedup key. Credit-card statements list transactions by
+# the card-swipe date, and consecutive cycles often overlap by a few
+# days at the boundary — a Feb 26 Wal-Mart charge can appear in both
+# the February statement (transaction-date column) and the March
+# statement (because it posted in March). Without this, posting two
+# adjacent statements would duplicate the boundary rows. The key is
+# (date, signed amount to 2dp, normalised description prefix). Same
+# normalisation rule lives in the cleanup SQL so the two paths agree.
+_DEDUP_DESC_LEN = 40
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]")
+
+
+def _normalize_description(desc: Optional[str]) -> str:
+    if not desc:
+        return ""
+    return _NON_ALNUM_RE.sub("", desc.lower())[:_DEDUP_DESC_LEN]
+
+
+def _dedup_key(tx_date, amount: float, description: Optional[str]) -> tuple:
+    # Two-decimal string so float drift doesn't break equality.
+    return (tx_date, f"{float(amount):.2f}", _normalize_description(description))
+
 
 def _sanitize_filename(raw: str) -> str:
     base = Path(raw or "").name
@@ -275,8 +297,14 @@ def download_pdf(import_id: int, db: Session = Depends(get_db)):
 def post_import(import_id: int, db: Session = Depends(get_db)):
     """Materialise parsed transactions into bank_transactions.
 
-    Idempotency at the row level: every BankTransaction created here
-    carries import_source='pdf' + import_id='<statement_import_id>:<row_idx>'.
+    Cross-statement dedup: each candidate row is fingerprinted as
+    (date, signed amount, normalised description) and skipped if a row
+    with the same fingerprint already exists on this bank_account.
+    This handles the Citi/Chase pattern where consecutive monthly
+    statements overlap by a few transaction-date days at the cycle
+    boundary, so the same Wal-Mart charge appearing in both PDFs only
+    lands once in the register. See _dedup_key for the matching rule.
+
     Posting an already-posted import is a no-op (returns the existing
     count rather than duplicating rows).
     """
@@ -308,8 +336,28 @@ def post_import(import_id: int, db: Session = Depends(get_db)):
             detail="Parsed payload missing or malformed; cannot post.",
         )
 
+    # Pre-load every existing row on this bank_account into a fingerprint
+    # set. One query instead of N inside the loop. For an account with
+    # tens of thousands of rows this is still cheap; revisit with a
+    # composite index on (bank_account_id, date, amount) if it stops
+    # being.
+    existing_keys = {
+        _dedup_key(row.date, float(row.amount), row.description or row.payee)
+        for row in (
+            db.query(
+                BankTransaction.date,
+                BankTransaction.amount,
+                BankTransaction.description,
+                BankTransaction.payee,
+            )
+            .filter(BankTransaction.bank_account_id == si.bank_account_id)
+            .all()
+        )
+    }
+
     transactions = parsed.get("transactions") or []
     created = 0
+    duplicates = 0
     for idx, tx in enumerate(transactions):
         try:
             tx_date = datetime.strptime(tx["date"], "%Y-%m-%d").date()
@@ -317,6 +365,10 @@ def post_import(import_id: int, db: Session = Depends(get_db)):
             continue
         amount = tx.get("amount")
         if amount is None:
+            continue
+        key = _dedup_key(tx_date, amount, tx.get("description"))
+        if key in existing_keys:
+            duplicates += 1
             continue
         bt = BankTransaction(
             bank_account_id=si.bank_account_id,
@@ -331,6 +383,10 @@ def post_import(import_id: int, db: Session = Depends(get_db)):
             statement_import_id=si.id,
         )
         db.add(bt)
+        # Also dedup within this batch — guards against a PDF that lists
+        # the same transaction twice in its own pages (rare but seen on
+        # corrected statements).
+        existing_keys.add(key)
         created += 1
 
     si.status = "posted"
@@ -341,7 +397,8 @@ def post_import(import_id: int, db: Session = Depends(get_db)):
     return {
         "import": _serialise_import(si),
         "created_count": created,
-        "skipped_count": len(transactions) - created,
+        "duplicate_count": duplicates,
+        "invalid_count": len(transactions) - created - duplicates,
     }
 
 
