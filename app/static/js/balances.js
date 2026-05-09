@@ -55,7 +55,10 @@ const BalancesPage = {
                     </div>
                     <div class="form-group">
                         <label>Currency</label>
-                        <input name="currency" maxlength="3" style="text-transform:uppercase; width:80px;" placeholder="(account default)">
+                        <select name="currency">
+                            <option value="">— Account default —</option>
+                            ${currencyOptions()}
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>As-of Date *</label>
@@ -113,20 +116,20 @@ const BalancesPage = {
     },
 
     _syncCurrency() {
-        // Pre-fill the currency field with the selected account's native
-        // currency so the user doesn't have to retype it for the common
-        // case. The placeholder still appears as "(account default)" if
-        // they leave it blank.
+        // Pre-pick the currency dropdown to match the selected account's
+        // native currency so the user doesn't have to confirm it for the
+        // common case. If the account's currency isn't one of the three
+        // listed (USD/CAD/EUR), fall back to the "Account default"
+        // option so the select doesn't end up in a broken
+        // selectedIndex=-1 state.
         const form = document.getElementById('balance-form');
         if (!form) return;
-        const select = form.elements['account_id'];
-        const opt = select.options[select.selectedIndex];
-        const currencyInput = form.elements['currency'];
-        if (opt && opt.dataset && opt.dataset.currency) {
-            currencyInput.value = opt.dataset.currency;
-        } else {
-            currencyInput.value = '';
-        }
+        const accountSel = form.elements['account_id'];
+        const opt = accountSel.options[accountSel.selectedIndex];
+        const currencySel = form.elements['currency'];
+        const wanted = (opt && opt.dataset && opt.dataset.currency) || '';
+        const hasOption = [...currencySel.options].some(o => o.value === wanted);
+        currencySel.value = hasOption ? wanted : '';
     },
 
     async save(e) {
