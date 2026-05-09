@@ -57,6 +57,8 @@ const App = {
         // Phase 1.5 task 3 — credit scores (cabin: true → page provides
         // its own gutter via .sb-head + .sb-section; router skips the legacy wrapper)
         '/credit-scores': { page: 'credit-scores',   label: 'Credit Scores',      cabin: true, render: () => CreditScoresPage.render() },
+        // Phase 2 — PDF statement ingestion (issue #1).
+        '/statement-imports': { page: 'statement-imports', label: 'Statement Imports', cabin: true, render: () => StatementImportsPage.render() },
     },
 
     async navigate(hash) {
