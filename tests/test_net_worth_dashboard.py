@@ -84,8 +84,11 @@ def test_dashboard_response_contains_per_account_breakdown(client, db_session, m
     _seed_personal(db_session)
     body = client.get("/api/net-worth").json()
     accounts = body["accounts"]
-    # All 18 personal accounts appear, even those without snapshots.
-    assert len(accounts) == 18
+    # All 19 personal accounts appear, even those without snapshots.
+    # The 19th — PennyMac Escrow — landed in alembic j2a3b4c5d6e7
+    # alongside the people / ownerships refactor; this assertion was
+    # stale at 18 from before that migration shipped.
+    assert len(accounts) == 19
     by_name = {a["name"]: a for a in accounts}
     house = by_name["US House"]
     assert house["kind"] == "property"
