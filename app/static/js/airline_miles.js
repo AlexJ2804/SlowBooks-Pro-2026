@@ -1,170 +1,263 @@
 /**
- * Household airline miles tracker — phase 1.5 task 2.
+ * Airline Miles — household loyalty-programme tracker (Cabin Pass design).
  *
- * One card per loyalty programme with logo and brand colour, a horizontal
- * stacked bar showing the per-person split of the current point total, and
- * a table of memberships underneath (member#, elite status, latest balance,
- * "as of" date).
+ * Two views, both driven from the same /api/airline-miles payload:
+ *   - "By programme" — one boarding-pass card per loyalty programme,
+ *     stub on the left with the airline logo and accent colour, body
+ *     on the right listing every household member.
+ *   - "By person" — one larger card per person, stub on the left with
+ *     their name and total miles, body on the right listing every
+ *     programme they're enrolled in (or could be).
  *
- * The "Update balance" inline form on each row POSTs to /airline-miles/snapshots
- * which is upsert by (membership_id, as_of_date) — re-entering today's value
- * overwrites instead of creating a duplicate.
+ * Per-programme accent comes in via inline custom properties on each
+ * card: `--accent` from the API's brand_color column and `--accent-soft`
+ * derived inline via color-mix so we don't need a second backend column.
  *
- * Brand colour is rendered as an inline CSS custom property
- * (`style="--program-color: #c8102e"`) on each card so styling stays
- * data-driven without requiring per-program CSS edits.
+ * Snapshot edits go through the existing /api/airline-miles/snapshots
+ * upsert (re-entering the same date overwrites). Membership-add buttons
+ * surface for any (person, programme) pair that doesn't yet have a row.
  */
 const AirlineMilesPage = {
-    _payload: [],
+    _programs: [],
     _people: [],
+    _state: { view: 'program' },
 
     async render() {
-        AirlineMilesPage._payload = await API.get('/airline-miles');
-        AirlineMilesPage._people = await API.get('/people');
-
-        const cardsHtml = AirlineMilesPage._payload
-            .map(prog => AirlineMilesPage._renderCard(prog))
-            .join('');
-
-        const grandTotal = AirlineMilesPage._payload
-            .reduce((sum, p) => sum + (p.total_balance || 0), 0);
-
-        return `
-            <div class="page-header">
-                <h2>Airline Miles</h2>
-                <div class="header-meta">
-                    Household total
-                    <strong style="margin-left:6px;">${AirlineMilesPage._fmtPoints(grandTotal)}</strong>
-                    points across ${AirlineMilesPage._payload.length} programmes
-                </div>
-            </div>
-            <div class="airline-miles-grid">
-                ${cardsHtml || AirlineMilesPage._emptyState()}
-            </div>
-        `;
+        const [programs, people] = await Promise.all([
+            API.get('/airline-miles'),
+            API.get('/people'),
+        ]);
+        AirlineMilesPage._programs = programs || [];
+        AirlineMilesPage._people = (people || []).slice().sort(
+            (a, b) => a.display_order - b.display_order
+        );
+        return AirlineMilesPage._body();
     },
 
-    _emptyState() {
-        return `<div class="empty-state">
-            <p>No airline programmes yet.</p>
-        </div>`;
+    setView(view) {
+        AirlineMilesPage._state.view = view;
+        const root = document.getElementById('miles-root');
+        if (root) root.outerHTML = AirlineMilesPage._body();
     },
 
-    _renderCard(prog) {
-        const total = prog.total_balance || 0;
-
-        // Logo: only render the <img> if the row has a logo_path. The
-        // initial-circle fallback uses the brand colour and the first
-        // letter of the programme name.
-        const logoHtml = prog.logo_path
-            ? `<img src="/static/${escapeHtml(prog.logo_path)}"
-                    alt="${escapeHtml(prog.name)} logo"
-                    class="airline-logo"
-                    onerror="this.replaceWith(AirlineMilesPage._fallbackLogoEl(${JSON.stringify(prog.name).replace(/"/g, '&quot;')}))">`
-            : AirlineMilesPage._fallbackLogoHtml(prog.name);
-
-        // Person split bar: one segment per membership with a non-zero
-        // latest balance, width proportional to share of the program total.
-        const segments = prog.memberships
-            .filter(m => (m.latest_balance || 0) > 0)
-            .map(m => {
-                const pct = total > 0 ? ((m.latest_balance / total) * 100) : 0;
-                return `<div class="split-seg"
-                    style="width:${pct.toFixed(2)}%;"
-                    title="${escapeHtml(m.person_name)}: ${AirlineMilesPage._fmtPoints(m.latest_balance)}">
-                    <span class="split-seg-label">${escapeHtml(m.person_name)}</span>
-                </div>`;
-            })
-            .join('');
-
-        const splitBarHtml = total > 0
-            ? `<div class="split-bar">${segments}</div>`
-            : `<div class="split-bar split-bar-empty">No balances entered yet</div>`;
-
-        // Membership table — every (program, person) row, blanks shown as em-dashes.
-        const rowsHtml = prog.memberships.map(m => `
-            <tr data-membership-id="${m.id}">
-                <td class="person-name">${escapeHtml(m.person_name)}</td>
-                <td class="member-number">${m.member_number ? escapeHtml(m.member_number) : '<span class="muted">—</span>'}</td>
-                <td class="elite-status">${m.elite_status ? escapeHtml(m.elite_status) : '<span class="muted">—</span>'}</td>
-                <td class="balance">${m.latest_balance != null ? AirlineMilesPage._fmtPoints(m.latest_balance) : '<span class="muted">—</span>'}</td>
-                <td class="as-of">${m.latest_as_of_date ? formatDate(m.latest_as_of_date) : '<span class="muted">—</span>'}</td>
-                <td class="actions">
-                    <button class="btn btn-sm btn-secondary"
-                            onclick="AirlineMilesPage.openUpdate(${m.id})">
-                        Update
-                    </button>
-                </td>
-            </tr>
-        `).join('');
-
-        // Memberships missing a person from the household are rendered as
-        // an "Add membership" link under the table. We compute which
-        // people don't yet have a row for this program.
-        const presentPersonIds = new Set(prog.memberships.map(m => m.person_id));
-        const missingPeople = AirlineMilesPage._people.filter(p => !presentPersonIds.has(p.id));
-        const addLinks = missingPeople.length > 0
-            ? `<div class="add-membership">
-                ${missingPeople.map(p =>
-                    `<button class="btn btn-sm btn-link"
-                             onclick="AirlineMilesPage.addMembership(${prog.id}, ${p.id}, ${JSON.stringify(p.name).replace(/"/g, '&quot;')})">
-                        + Add ${escapeHtml(p.name)}
-                    </button>`
-                ).join(' ')}
-            </div>`
-            : '';
-
-        return `
-            <div class="program-card" style="--program-color: ${escapeHtml(prog.brand_color)};">
-                <div class="program-card-header">
-                    <div class="program-logo-wrap">${logoHtml}</div>
-                    <div class="program-title">
-                        <h3>${escapeHtml(prog.name)}</h3>
-                        <div class="program-meta">
-                            <span class="alliance-tag">${escapeHtml(prog.alliance)}</span>
-                            <span class="program-total">${AirlineMilesPage._fmtPoints(total)} pts</span>
-                        </div>
-                    </div>
-                </div>
-                ${splitBarHtml}
-                <table class="program-members">
-                    <thead><tr>
-                        <th>Person</th>
-                        <th>Member #</th>
-                        <th>Status</th>
-                        <th class="amount">Balance</th>
-                        <th>As of</th>
-                        <th style="width:80px;"></th>
-                    </tr></thead>
-                    <tbody>${rowsHtml}</tbody>
-                </table>
-                ${addLinks}
-            </div>
-        `;
-    },
-
-    _fmtPoints(n) {
-        if (n == null) return '—';
+    // ----------------------------------------------------------------
+    // Helpers
+    // ----------------------------------------------------------------
+    _fmt(n) {
+        if (n == null) return '&mdash;';
         return Number(n).toLocaleString('en-US');
     },
 
-    _fallbackLogoHtml(name) {
-        const initial = (name || '?').trim().charAt(0).toUpperCase();
-        return `<div class="airline-logo airline-logo-fallback">${escapeHtml(initial)}</div>`;
+    _accentStyle(hex) {
+        // --accent comes from the API; --accent-soft is a 12% tint so
+        // the stub gets a faint wash without needing a second column
+        // on the airline_programs table.
+        return `--accent:${escapeHtml(hex)};`
+             + `--accent-soft:color-mix(in srgb, ${escapeHtml(hex)} 12%, white);`;
     },
 
-    _fallbackLogoEl(name) {
-        // Used by <img onerror> to swap in a fallback when the file 404s.
-        const div = document.createElement('div');
-        div.className = 'airline-logo airline-logo-fallback';
-        div.textContent = (name || '?').trim().charAt(0).toUpperCase();
-        return div;
+    _logoUrl(prog) {
+        return prog.logo_path ? `/static/${escapeHtml(prog.logo_path)}` : '';
     },
 
+    _personById(id) {
+        return AirlineMilesPage._people.find(p => p.id === id);
+    },
+
+    _membershipFor(prog, personId) {
+        return (prog.memberships || []).find(m => m.person_id === personId);
+    },
+
+    _personRoleLabel(person) {
+        // Cabin Pass design surfaces the role above the name in mono
+        // uppercase. Map our DB roles to a readable label and let the
+        // CSS handle the uppercase styling.
+        if (!person) return '';
+        if (person.role === 'parent') return 'Parent';
+        if (person.role === 'child')  return 'Child';
+        return person.role || 'Member';
+    },
+
+    // ----------------------------------------------------------------
+    // Programme card (one airline, lists all household members)
+    // ----------------------------------------------------------------
+    _programCard(prog) {
+        const total = prog.total_balance || 0;
+        const accentStyle = AirlineMilesPage._accentStyle(prog.brand_color || '#1F4FA8');
+        const logoUrl = AirlineMilesPage._logoUrl(prog);
+
+        const tile = logoUrl
+            ? `<div class="sb-card-tile"><img src="${logoUrl}" alt="${escapeHtml(prog.name)}"></div>`
+            : `<div class="sb-card-tile letter">${escapeHtml((prog.name || '?').charAt(0).toUpperCase())}</div>`;
+
+        const presentIds = new Set((prog.memberships || []).map(m => m.person_id));
+        const memberRows = AirlineMilesPage._people.map(person => {
+            const m = AirlineMilesPage._membershipFor(prog, person.id);
+            if (!m) {
+                // No membership row yet for this (person, programme).
+                // Render a stub line with an "Add" button so the user
+                // can create the placeholder in one click.
+                return `
+                    <div class="sb-card-row cols-4">
+                        <span class="who">${escapeHtml(person.name)}<small>${escapeHtml(AirlineMilesPage._personRoleLabel(person))}</small></span>
+                        <span class="num muted">&mdash;</span>
+                        <span class="bal empty">&mdash;</span>
+                        <button class="btn btn-sm btn-secondary" type="button"
+                                onclick="AirlineMilesPage.addMembership(${prog.id}, ${person.id})">Add</button>
+                    </div>`;
+            }
+            const balCls = m.latest_balance == null ? ' empty' : '';
+            const memberStr = m.member_number ? escapeHtml(m.member_number) : '&mdash;';
+            return `
+                <div class="sb-card-row cols-4">
+                    <span class="who">${escapeHtml(person.name)}<small>${escapeHtml(AirlineMilesPage._personRoleLabel(person))}</small></span>
+                    <span class="num">${memberStr}</span>
+                    <span class="bal${balCls}">${AirlineMilesPage._fmt(m.latest_balance)}</span>
+                    <button class="btn btn-sm btn-secondary" type="button"
+                            onclick="AirlineMilesPage.openUpdate(${m.id})">Update</button>
+                </div>`;
+        }).join('');
+
+        // Pull airline name out of the programme name where possible
+        // ("American AAdvantage" → ["American", "AAdvantage"]); falls
+        // back to the full name in the stub class slot.
+        const parts = (prog.name || '').split(' ');
+        const airlineName = parts.length > 1 ? parts.slice(0, -1).join(' ') : (prog.name || '');
+        const programName = parts.length > 1 ? parts[parts.length - 1] : '';
+
+        return `
+            <article class="sb-card" style="${accentStyle}">
+                <span class="sb-notch-top"></span>
+                <span class="sb-notch-bot"></span>
+                <div class="sb-card-stub">
+                    ${tile}
+                    <div>
+                        <div class="sb-card-class">${escapeHtml(airlineName)}</div>
+                        <div class="sb-card-name">${escapeHtml(programName)}</div>
+                    </div>
+                    <div class="sb-card-meta">
+                        <div class="lbl">Programme balance</div>
+                        <div class="val">${AirlineMilesPage._fmt(total)}<span>PTS</span></div>
+                    </div>
+                </div>
+                <div class="sb-card-body">${memberRows}</div>
+            </article>
+        `;
+    },
+
+    // ----------------------------------------------------------------
+    // Person card (one household member, lists their programmes)
+    // ----------------------------------------------------------------
+    _personCard(person) {
+        // Programmes where this person already has a membership land
+        // on top, sorted by latest balance desc; placeholders for
+        // programmes they haven't joined sit underneath.
+        const enrolled = [];
+        const unenrolled = [];
+        for (const prog of AirlineMilesPage._programs) {
+            const m = AirlineMilesPage._membershipFor(prog, person.id);
+            if (m) enrolled.push({ prog, m });
+            else   unenrolled.push({ prog, m: null });
+        }
+        enrolled.sort(
+            (a, b) => (b.m.latest_balance || 0) - (a.m.latest_balance || 0)
+        );
+        const ordered = [...enrolled, ...unenrolled];
+        const total = enrolled.reduce(
+            (s, e) => s + (e.m.latest_balance || 0), 0
+        );
+
+        const rows = ordered.map(({ prog, m }) => {
+            const logoUrl = AirlineMilesPage._logoUrl(prog);
+            const tile = logoUrl
+                ? `<div class="pmono"><img src="${logoUrl}" alt=""></div>`
+                : `<div class="pmono letter">${escapeHtml((prog.name || '?').charAt(0).toUpperCase())}</div>`;
+
+            const parts = (prog.name || '').split(' ');
+            const airlineName = parts.length > 1 ? parts.slice(0, -1).join(' ') : (prog.name || '');
+            const programName = parts.length > 1 ? parts[parts.length - 1] : '';
+
+            if (!m) {
+                return `
+                    <div class="sb-prow">
+                        ${tile}
+                        <div class="pname">${escapeHtml(programName || airlineName)}<small>${escapeHtml(airlineName)}</small></div>
+                        <div class="pmember muted">&mdash;</div>
+                        <div class="pbal empty">&mdash;</div>
+                        <button class="btn btn-sm btn-secondary" type="button"
+                                onclick="AirlineMilesPage.addMembership(${prog.id}, ${person.id})">Add</button>
+                    </div>`;
+            }
+            const balCls = m.latest_balance == null ? ' empty' : '';
+            return `
+                <div class="sb-prow">
+                    ${tile}
+                    <div class="pname">${escapeHtml(programName || airlineName)}<small>${escapeHtml(airlineName)}</small></div>
+                    <div class="pmember">${m.member_number ? escapeHtml(m.member_number) : '&mdash;'}</div>
+                    <div class="pbal${balCls}">${AirlineMilesPage._fmt(m.latest_balance)}</div>
+                    <button class="btn btn-sm btn-secondary" type="button"
+                            onclick="AirlineMilesPage.openUpdate(${m.id})">Update</button>
+                </div>`;
+        }).join('');
+
+        return `
+            <article class="sb-pcard">
+                <div class="sb-pstub">
+                    <div>
+                        <div class="role">${escapeHtml(AirlineMilesPage._personRoleLabel(person))}</div>
+                        <div class="name">${escapeHtml(person.name)}</div>
+                    </div>
+                    <div class="meta">
+                        <div class="lbl">Total across programmes</div>
+                        <div class="val">${AirlineMilesPage._fmt(total)}<span>PTS</span></div>
+                    </div>
+                </div>
+                <div class="sb-pbody">${rows}</div>
+            </article>
+        `;
+    },
+
+    // ----------------------------------------------------------------
+    // Page shell
+    // ----------------------------------------------------------------
+    _body() {
+        const view = AirlineMilesPage._state.view;
+        const cards = view === 'program'
+            ? AirlineMilesPage._programs.map(p => AirlineMilesPage._programCard(p)).join('')
+            : AirlineMilesPage._people.map(p => AirlineMilesPage._personCard(p)).join('');
+
+        const empty = AirlineMilesPage._programs.length === 0
+            ? `<div class="empty-state"><p>No airline programmes yet.</p></div>`
+            : '';
+
+        return `
+            <div id="miles-root">
+                <header class="sb-head">
+                    <div class="sb-crumb">Travel &middot; Loyalty</div>
+                    <h1>Airline Miles</h1>
+                    <div class="sb-sub">
+                        ${AirlineMilesPage._programs.length} programme${AirlineMilesPage._programs.length === 1 ? '' : 's'}
+                        &middot;
+                        ${AirlineMilesPage._people.length} member${AirlineMilesPage._people.length === 1 ? '' : 's'}
+                    </div>
+                </header>
+                <div class="sb-segs">
+                    <button type="button" class="sb-pill${view === 'program' ? ' on' : ''}"
+                            onclick="AirlineMilesPage.setView('program')">By programme</button>
+                    <button type="button" class="sb-pill${view === 'person' ? ' on' : ''}"
+                            onclick="AirlineMilesPage.setView('person')">By person</button>
+                    <span class="sb-grow"></span>
+                </div>
+                <div class="sb-grid${view === 'person' ? ' cols-1' : ''}">${cards}</div>
+                ${empty}
+            </div>
+        `;
+    },
+
+    // ----------------------------------------------------------------
+    // Update-balance modal — same backend as the previous design.
+    // ----------------------------------------------------------------
     openUpdate(membershipId) {
-        // Modal with three inputs: balance, as_of_date (default today),
-        // optional notes. Submit POSTs to /airline-miles/snapshots
-        // (upsert by membership_id + as_of_date).
         const today = todayISO();
         const html = `
             <form id="miles-update-form" onsubmit="AirlineMilesPage.saveSnapshot(event, ${membershipId})">
@@ -184,7 +277,7 @@ const AirlineMilesPage = {
                     <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save</button>
                 </div>
-                <div style="font-size:10px; color:var(--text-muted); margin-top:6px;">
+                <div style="font-size:10px; color:var(--ink-3); margin-top:6px;">
                     Re-entering the same date overwrites the previous balance.
                 </div>
             </form>
@@ -206,7 +299,6 @@ const AirlineMilesPage = {
             await API.post('/airline-miles/snapshots', payload);
             toast('Balance updated');
             closeModal();
-            // Re-render the page so the new balance + split bar reflect immediately.
             const html = await AirlineMilesPage.render();
             document.getElementById('page-content').innerHTML = html;
         } catch (err) {
@@ -214,15 +306,13 @@ const AirlineMilesPage = {
         }
     },
 
-    async addMembership(programId, personId, personName) {
-        // Single-click add — creates a placeholder membership with no
-        // member# / status / balance. The user fills those in via Update.
+    async addMembership(programId, personId) {
         try {
             await API.post('/airline-miles/memberships', {
                 program_id: programId,
                 person_id: personId,
             });
-            toast(`Added ${personName}`);
+            toast('Membership added');
             const html = await AirlineMilesPage.render();
             document.getElementById('page-content').innerHTML = html;
         } catch (err) {
