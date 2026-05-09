@@ -37,6 +37,7 @@ const BalancesPage = {
         ).join('');
 
         let html = `
+            <div class="sb-page-pad">
             <div class="page-header">
                 <h2>Balance Entry</h2>
             </div>
@@ -69,12 +70,13 @@ const BalancesPage = {
                         For loan accounts, enter the current outstanding balance as a positive number.
                     </div>
                 </form>
-                <div style="flex: 1 1 auto;">
+                <div style="flex: 1 1 auto; min-width: 0;">
                     <h3 style="font-size:13px; margin:0 0 6px 0;">Recent entries</h3>
                     <div class="table-container" id="balance-recent">
                         ${BalancesPage._renderRecent(recent)}
                     </div>
                 </div>
+            </div>
             </div>
         `;
         return html;
@@ -84,13 +86,16 @@ const BalancesPage = {
         if (!rows || rows.length === 0) {
             return '<div class="empty-state"><p>No balance snapshots yet</p></div>';
         }
+        // Account header gets width:100% so it absorbs any slack;
+        // every other column gets white-space:nowrap so they collapse
+        // to their natural width and sit flush against Account.
         let html = `<table>
             <thead><tr>
-                <th>Date</th>
-                <th>Account</th>
-                <th class="amount">Balance</th>
-                <th>Currency</th>
-                <th style="width:60px;">Actions</th>
+                <th style="white-space:nowrap;">Date</th>
+                <th style="width:100%;">Account</th>
+                <th class="amount" style="white-space:nowrap;">Balance</th>
+                <th style="white-space:nowrap;">Currency</th>
+                <th style="white-space:nowrap; width:60px;">Actions</th>
             </tr></thead><tbody>`;
         for (const r of rows) {
             html += `<tr>

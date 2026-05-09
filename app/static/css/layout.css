@@ -242,6 +242,22 @@
   padding: 0;
 }
 
+/* Legacy-page wrapper.
+ *
+ * Cabin pages (e.g. /#/miles) use .sb-head + .sb-grid + .sb-section
+ * which each carry their own --pad-page-x gutter, so #page-content
+ * can stay flush. Pages that haven't been refit yet (balances, net
+ * worth, credit scores, customers, …) render their content directly
+ * inside #page-content and would otherwise hug the sidebar.
+ *
+ * Wrapping their top-level container in `.sb-page-pad` gives them
+ * the same gutter as cabin pages without affecting cabin pages, and
+ * gets removed page-by-page as each one migrates to the cabin
+ * layout primitives. */
+.sb-page-pad {
+  padding: var(--pad-page-top) var(--pad-page-x) var(--pad-page-bottom);
+}
+
 /* === Per-page header === */
 .sb-head {
   padding: var(--pad-page-top) var(--pad-page-x) 18px;
