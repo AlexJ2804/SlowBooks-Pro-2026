@@ -11,6 +11,31 @@
     <link rel="stylesheet" href="/static/css/layout.css">
     <link rel="stylesheet" href="/static/css/components.css">
     <link rel="stylesheet" href="/static/css/dashboard_household.css">
+    <link rel="stylesheet" href="/static/css/vibrant.css">
+    <script>
+        // Theme picker — preview-only, set ?theme=vibrant or
+        // ?theme=vibrant-bright on any page URL and the choice persists in
+        // localStorage. ?theme=default clears the saved choice. The class
+        // goes on <html> so it's set before <body> renders, no flash.
+        (function () {
+            try {
+                var KEY = 'slowbooks_theme';
+                var ALLOWED = { vibrant: 1, 'vibrant-bright': 1 };
+                var fromUrl = new URLSearchParams(location.search).get('theme');
+                var theme;
+                if (fromUrl === 'default') {
+                    localStorage.removeItem(KEY);
+                    theme = '';
+                } else if (fromUrl && ALLOWED[fromUrl]) {
+                    localStorage.setItem(KEY, fromUrl);
+                    theme = fromUrl;
+                } else {
+                    theme = localStorage.getItem(KEY) || '';
+                }
+                if (theme) document.documentElement.classList.add(theme);
+            } catch (e) { /* silent — preview only */ }
+        })();
+    </script>
 </head>
 <body>
     <!-- ================================================================
