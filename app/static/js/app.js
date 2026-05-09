@@ -48,6 +48,8 @@ const App = {
         // Phase 10: Quick Wins + Medium Effort Features
         '/budgets':       { page: 'budgets',         label: 'Budget vs Actual',   render: () => BudgetsPage.render() },
         '/bank-rules':    { page: 'bank-rules',      label: 'Bank Rules',         render: () => BankRulesPage.render() },
+        // Travel — household airline-loyalty tracker
+        '/miles':         { page: 'miles',           label: 'Airline Miles',      render: () => AirlineMilesPage.render() },
     },
 
     async navigate(hash) {
