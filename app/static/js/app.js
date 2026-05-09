@@ -129,6 +129,230 @@ const App = {
     },
 
     async renderDashboard() {
+        // Phase 1.5 task 5: the home page is now a household-finance
+        // dashboard with the legacy QuickBooks "Company Snapshot"
+        // content stacked underneath. Each new section degrades to an
+        // empty-state if its endpoint is missing or fails so the rest
+        // of the dashboard still paints.
+        const [netWorth, miles, scores, balances, companyHtml] = await Promise.all([
+            API.get('/net-worth').catch(() => null),
+            API.get('/airline-miles').catch(() => null),
+            API.get('/credit-scores').catch(() => null),
+            API.get('/balances?limit=5').catch(() => null),
+            App._renderCompanySnapshot().catch(err => {
+                console.error('Bookkeeping snapshot failed:', err);
+                return `<div class="empty-state"><p>Bookkeeping snapshot unavailable.</p></div>`;
+            }),
+        ]);
+
+        return `
+            <div class="page-header">
+                <h2>Household Dashboard</h2>
+                <div style="font-size:10px; color:var(--text-muted);">
+                    Slowbooks Pro 2026 &mdash; Build 12.0.3190-R
+                </div>
+            </div>
+            ${App._renderNetWorthHeadline(netWorth)}
+            ${App._renderMilesSummary(miles)}
+            ${App._renderCreditScoreSummary(scores)}
+            ${App._renderRecentActivity(balances)}
+            <div class="dash-divider" role="separator"></div>
+            ${companyHtml}
+        `;
+    },
+
+    // ----------------------------------------------------------------
+    // Phase 1.5 task 5 — household sections on the dashboard
+    // ----------------------------------------------------------------
+    _renderNetWorthHeadline(nw) {
+        if (!nw) {
+            return `<div class="dashboard-section">
+                <h3>Net Worth</h3>
+                <div class="empty-state"><p>Net worth data unavailable.</p></div>
+            </div>`;
+        }
+        const home = nw.home_currency || 'USD';
+        const householdNet = nw.totals && nw.totals.household
+            ? Number(nw.totals.household.net || 0)
+            : 0;
+
+        // Most recent as-of across all account snapshots — gives the
+        // user a "current as of <date>" line on the headline so they
+        // know how stale the figure is.
+        let mostRecent = null;
+        for (const a of (nw.accounts || [])) {
+            if (a.latest_balance_as_of) {
+                if (mostRecent === null || a.latest_balance_as_of > mostRecent) {
+                    mostRecent = a.latest_balance_as_of;
+                }
+            }
+        }
+
+        const slices = (nw.slices_by_person || []).map(s => {
+            const net = Number(s.net || 0);
+            const pct = householdNet !== 0 ? (net / householdNet * 100) : 0;
+            return `<div class="nw-slice">
+                <div class="nw-slice-name">${escapeHtml(s.name)}</div>
+                <div class="nw-slice-amount">${formatCurrency(net, home)}</div>
+                <div class="nw-slice-pct">${pct.toFixed(1)}% of household</div>
+            </div>`;
+        }).join('');
+
+        return `
+            <div class="dashboard-section">
+                <div class="nw-headline">
+                    <div class="nw-headline-label">Household net worth</div>
+                    <div class="nw-headline-value">${formatCurrency(householdNet, home)}</div>
+                    <div class="nw-headline-as-of">
+                        ${mostRecent ? `as of ${formatDate(mostRecent)}` : 'No balance snapshots yet'}
+                        &middot; <a href="#/net-worth">View full breakdown</a>
+                    </div>
+                </div>
+                ${slices ? `<div class="nw-slice-row">${slices}</div>` : ''}
+            </div>
+        `;
+    },
+
+    _renderMilesSummary(miles) {
+        if (!miles) {
+            return `<div class="dashboard-section">
+                <h3>Airline Miles</h3>
+                <div class="empty-state"><p>Miles data unavailable.</p></div>
+            </div>`;
+        }
+
+        // Roll up miles by person across all programs. Person rows with
+        // zero miles are dropped from the summary — empty placeholders
+        // belong on /#/miles, not the dashboard.
+        const byPerson = new Map();
+        for (const prog of miles) {
+            for (const m of (prog.memberships || [])) {
+                if (!m.latest_balance) continue;
+                const cur = byPerson.get(m.person_id) || {
+                    name: m.person_name,
+                    display_order: m.person_display_order,
+                    total: 0,
+                    programs: 0,
+                };
+                cur.total += m.latest_balance;
+                cur.programs += 1;
+                byPerson.set(m.person_id, cur);
+            }
+        }
+        const rows = [...byPerson.values()].sort(
+            (a, b) => a.display_order - b.display_order
+        );
+
+        const body = rows.length === 0
+            ? `<div class="empty-state"><p>No miles entered yet. <a href="#/miles">Add some</a>.</p></div>`
+            : `<ul class="dash-list">${rows.map(r => `
+                    <li>
+                        <strong>${escapeHtml(r.name)}:</strong>
+                        ${r.total.toLocaleString('en-US')} miles
+                        <span class="muted">across ${r.programs} programme${r.programs === 1 ? '' : 's'}</span>
+                    </li>
+                `).join('')}</ul>`;
+
+        return `
+            <div class="dashboard-section">
+                <h3>Airline Miles <a href="#/miles" class="dash-section-link">View all</a></h3>
+                ${body}
+            </div>
+        `;
+    },
+
+    _renderCreditScoreSummary(scores) {
+        if (!scores) {
+            return `<div class="dashboard-section">
+                <h3>Credit Scores</h3>
+                <div class="empty-state"><p>Credit score data unavailable.</p></div>
+            </div>`;
+        }
+        const bureaus = ['Equifax', 'Experian', 'TransUnion'];
+
+        // Build the latest-per-(person,bureau) lookup directly here so
+        // the dashboard doesn't depend on the credit_scores.js module
+        // having loaded. Same FICO 8 preference rule though.
+        const sorted = [...scores].sort((a, b) => {
+            const d = b.as_of_date.localeCompare(a.as_of_date);
+            if (d !== 0) return d;
+            return (a.score_model === 'FICO 8' ? 0 : 1)
+                 - (b.score_model === 'FICO 8' ? 0 : 1);
+        });
+        const latest = new Map();  // person_id|bureau -> row
+        for (const s of sorted) {
+            const k = `${s.person_id}|${s.bureau}`;
+            if (!latest.has(k)) latest.set(k, s);
+        }
+        // Distinct people who have any score recorded.
+        const peopleSeen = new Map();
+        for (const s of scores) {
+            if (!peopleSeen.has(s.person_id)) {
+                peopleSeen.set(s.person_id, s.person_name);
+            }
+        }
+        const personRows = [...peopleSeen.entries()];
+
+        const headerCells = bureaus.map(b => `<th>${b}</th>`).join('');
+        const bodyRows = personRows.length === 0
+            ? `<tr><td colspan="${bureaus.length + 1}" style="text-align:center; color:var(--text-muted);">
+                    No scores entered yet. <a href="#/credit-scores">Add some</a>.
+               </td></tr>`
+            : personRows.map(([pid, name]) => {
+                const cells = bureaus.map(b => {
+                    const r = latest.get(`${pid}|${b}`);
+                    return r
+                        ? `<td class="amount">${r.score}</td>`
+                        : `<td class="amount muted">—</td>`;
+                }).join('');
+                return `<tr><th class="dash-cs-person">${escapeHtml(name)}</th>${cells}</tr>`;
+            }).join('');
+
+        return `
+            <div class="dashboard-section">
+                <h3>Credit Scores <a href="#/credit-scores" class="dash-section-link">View all</a></h3>
+                <table class="dash-cs-grid">
+                    <thead><tr><th></th>${headerCells}</tr></thead>
+                    <tbody>${bodyRows}</tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    _renderRecentActivity(balances) {
+        if (!balances) {
+            return `<div class="dashboard-section">
+                <h3>Recent activity</h3>
+                <div class="empty-state"><p>Activity feed unavailable.</p></div>
+            </div>`;
+        }
+        if (balances.length === 0) {
+            return `<div class="dashboard-section">
+                <h3>Recent activity</h3>
+                <div class="empty-state"><p>No balance snapshots yet.</p></div>
+            </div>`;
+        }
+        const rows = balances.map(b => `
+            <li>
+                <span class="dash-act-date">${formatDate(b.as_of_date)}</span>
+                &mdash; ${escapeHtml(b.account_name || '')}
+                &mdash; <strong>${formatCurrency(b.balance, b.currency)}</strong>
+            </li>
+        `).join('');
+        return `
+            <div class="dashboard-section">
+                <h3>Recent activity <a href="#/balances" class="dash-section-link">Add snapshot</a></h3>
+                <ul class="dash-list">${rows}</ul>
+            </div>
+        `;
+    },
+
+    async _renderCompanySnapshot() {
+        // Phase 1.5 task 5 hoist: this is the legacy QB-style "Company
+        // Snapshot" content (AR / AP / Bank Balances / Recent Invoices),
+        // now rendered as the bottom section of /#/dashboard underneath
+        // the new household-finance sections. Renamed to "Bookkeeping"
+        // so the personal/business split on the page is self-evident.
         const data = await API.get('/dashboard');
 
         let recentInv = data.recent_invoices.map(inv =>
@@ -217,7 +441,7 @@ const App = {
 
         return `
             <div class="page-header">
-                <h2>Company Snapshot</h2>
+                <h2>Bookkeeping</h2>
                 <div style="font-size:10px; color:var(--text-muted);">
                     Slowbooks Pro 2026 &mdash; Build 12.0.3190-R
                 </div>

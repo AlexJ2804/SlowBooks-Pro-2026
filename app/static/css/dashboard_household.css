@@ -1,0 +1,157 @@
+/* ============================================================================
+ * Household-finance dashboard sections — phase 1.5 task 5.
+ *
+ * Stacked above the legacy Bookkeeping snapshot on /#/dashboard.
+ * ============================================================================ */
+
+/* Net worth headline ------------------------------------------------- */
+.nw-headline {
+    background: linear-gradient(180deg, #f7f9fc 0%, #eef2f7 100%);
+    border: 1px solid var(--panel-border, #c0c4cc);
+    border-left: 4px solid var(--qb-navy, #003366);
+    border-radius: 4px;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+}
+
+.nw-headline-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted, #6b7280);
+}
+
+.nw-headline-value {
+    font-size: 32px;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+    color: var(--qb-navy, #003366);
+    line-height: 1.05;
+    margin: 4px 0 6px;
+}
+
+.nw-headline-as-of {
+    font-size: 11px;
+    color: var(--text-muted, #6b7280);
+}
+
+.nw-slice-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+}
+
+.nw-slice {
+    background: #fff;
+    border: 1px solid var(--panel-border, #d8dce4);
+    border-radius: 4px;
+    padding: 8px 12px;
+}
+
+.nw-slice-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted, #6b7280);
+}
+
+.nw-slice-amount {
+    font-size: 16px;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-primary, #1a1a2e);
+    margin-top: 2px;
+}
+
+.nw-slice-pct {
+    font-size: 10px;
+    color: var(--text-muted, #6b7280);
+    margin-top: 2px;
+}
+
+/* Section heading 'View all' link ------------------------------------ */
+.dash-section-link {
+    float: right;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--qb-blue, #336699);
+    text-decoration: none;
+    margin-top: 3px;
+}
+
+.dash-section-link:hover { text-decoration: underline; }
+
+/* Generic dashboard list (miles roll-up, recent activity) ------------ */
+ul.dash-list {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0 0;
+    font-size: 12px;
+}
+
+ul.dash-list li {
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+ul.dash-list li:last-child { border-bottom: none; }
+ul.dash-list .muted { color: var(--text-muted, #6b7280); }
+
+.dash-act-date {
+    display: inline-block;
+    min-width: 80px;
+    color: var(--text-muted, #6b7280);
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+}
+
+/* Credit-score mini-grid on the dashboard ---------------------------- */
+table.dash-cs-grid {
+    width: auto;
+    border-collapse: collapse;
+    margin: 4px 0;
+    font-size: 12px;
+}
+
+table.dash-cs-grid th,
+table.dash-cs-grid td {
+    padding: 5px 12px;
+    border: 1px solid var(--panel-border, #d8dce4);
+    text-align: center;
+}
+
+table.dash-cs-grid thead th {
+    background: rgba(0, 0, 0, 0.03);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #6b7280);
+}
+
+table.dash-cs-grid th.dash-cs-person {
+    text-align: left;
+    background: rgba(0, 0, 0, 0.03);
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-primary, #1a1a2e);
+    font-size: 12px;
+}
+
+table.dash-cs-grid td.amount {
+    font-family: var(--font-mono, monospace);
+    font-weight: 700;
+}
+
+/* Visual break between household sections and Bookkeeping ------------ */
+.dash-divider {
+    height: 1px;
+    background: linear-gradient(
+        to right,
+        transparent 0%,
+        var(--panel-border, #d8dce4) 20%,
+        var(--panel-border, #d8dce4) 80%,
+        transparent 100%
+    );
+    margin: 18px 0;
+}
