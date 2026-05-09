@@ -174,6 +174,7 @@ const App = {
             ${App._renderMilesSummary(miles)}
             ${App._renderCreditScoreSummary(scores)}
             ${App._renderRecentActivity(balances)}
+            ${App._renderScraperPanel()}
             <div class="dash-divider" role="separator"></div>
             ${companyHtml}
         `;
@@ -335,6 +336,67 @@ const App = {
                 </table>
             </div>
         `;
+    },
+
+    _renderScraperPanel() {
+        // Manual trigger for the Gmail-receipts → IIF → import pipeline.
+        // The scheduled cron in services/scheduled_import.py runs this
+        // every Monday 6am America/Chicago; the button here lets the user
+        // pull right now. Result text and color are written back into
+        // #dash-scraper-result by App.runScraperFromDashboard().
+        return `
+            <div class="dashboard-section">
+                <h3>Receipts &mdash; Gmail Scraper
+                    <a href="#/iif" class="dash-section-link">Open IIF page</a></h3>
+                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:4px 0;">
+                    <button id="dash-scraper-btn" class="btn btn-primary"
+                            onclick="App.runScraperFromDashboard()">
+                        Pull receipts now
+                    </button>
+                    <div id="dash-scraper-result" style="font-size:11px; color:var(--text-muted, var(--ink-3));">
+                        Runs the same pipeline as the weekly Monday 6am cron &mdash; just right now.
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    async runScraperFromDashboard() {
+        const btn = document.getElementById('dash-scraper-btn');
+        const out = document.getElementById('dash-scraper-result');
+        if (!btn || !out) return;
+
+        btn.disabled = true;
+        const originalLabel = btn.textContent;
+        btn.textContent = 'Scanning Gmail…';
+        out.style.color = 'var(--text-muted, var(--ink-3))';
+        out.textContent = 'Calling Apps Script — this can take up to a few minutes.';
+
+        try {
+            const r = await API.post('/scheduled-import/run-now', {});
+            const counts = `${r.bills} bill${r.bills === 1 ? '' : 's'} · ${r.deposits} deposit${r.deposits === 1 ? '' : 's'} · ${r.duplicates_skipped} duplicate${r.duplicates_skipped === 1 ? '' : 's'} skipped`;
+            const errCount = (r.errors || []).length;
+            const elapsed = r.elapsed_seconds != null ? ` · ${r.elapsed_seconds}s` : '';
+
+            if (r.iif_bytes === 0) {
+                out.style.color = 'var(--text-muted, var(--ink-3))';
+                out.textContent = `No new transactions${elapsed}.`;
+            } else if (errCount > 0) {
+                out.style.color = 'var(--qb-orange, var(--warning, #b45309))';
+                out.textContent = `${counts} · ${errCount} import error${errCount === 1 ? '' : 's'}${elapsed}.`;
+            } else {
+                out.style.color = 'var(--success, var(--positive, #2E7D5B))';
+                out.textContent = `${counts}${elapsed}.`;
+            }
+            toast(r.iif_bytes === 0 ? 'Scraper ran — no new receipts' : `Imported ${r.bills + r.deposits} new entries`);
+        } catch (err) {
+            out.style.color = 'var(--qb-red, var(--negative, #c8102e))';
+            out.textContent = err.message || 'Scraper run failed';
+            toast(err.message || 'Scraper run failed', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalLabel;
+        }
     },
 
     _renderRecentActivity(balances) {

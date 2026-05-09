@@ -66,6 +66,9 @@ from app.routes import people as people_route
 from app.routes import airline_miles as airline_miles_route
 # Phase 1.5 task 3: credit scores tracker (per-person, per-bureau).
 from app.routes import credit_scores as credit_scores_route
+# Manual trigger for the weekly Gmail-receipts -> IIF -> import pipeline.
+# Same code path as the APScheduler cron in services/scheduled_import.py.
+from app.routes import scheduled_import as scheduled_import_route
 
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
@@ -147,6 +150,7 @@ app.include_router(net_worth_route.router)
 app.include_router(people_route.router)
 app.include_router(airline_miles_route.router)
 app.include_router(credit_scores_route.router)
+app.include_router(scheduled_import_route.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)
