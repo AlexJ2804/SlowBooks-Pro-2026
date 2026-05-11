@@ -3,6 +3,7 @@
 # Feature 11: Database backup and restore accessible from settings
 # ============================================================================
 
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,30 @@ from app.models.backups import Backup
 
 BACKUP_DIR = Path(__file__).parent.parent.parent / "backups"
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+# Matches the exact format create_backup emits: slowbooks_YYYYMMDD_HHMMSS.sql.
+# Exported (no leading underscore) because the FastAPI routes inline the
+# match directly before any Path construction — CodeQL's py/path-injection
+# dataflow recognizes an inline re.fullmatch as a sanitizer but does not
+# trace through helper-function wrappers reliably.
+BACKUP_FILENAME_RE = re.compile(r"^slowbooks_(\d{8})_(\d{6})\.sql$")
+
+
+def validate_backup_filename(filename: str) -> str:
+    """Return a safe backup filename, or raise ValueError if it doesn't match the allowlist.
+
+    The returned string is *reconstructed* from a constant template plus
+    digit-only regex groups, not echoed from the input — so it cannot
+    contain path separators, '..', or any other byte that wasn't an ASCII
+    digit. CodeQL's py/path-injection dataflow treats this as full
+    sanitization (it tracks the value as a new, untainted string).
+    """
+    if not isinstance(filename, str):
+        raise ValueError("Invalid backup filename")
+    m = BACKUP_FILENAME_RE.fullmatch(filename)
+    if not m:
+        raise ValueError("Invalid backup filename")
+    return f"slowbooks_{m.group(1)}_{m.group(2)}.sql"
 
 
 def _parse_db_url(url: str) -> dict:
@@ -68,9 +93,13 @@ def create_backup(db: Session, notes: str = None, backup_type: str = "manual") -
 
 def restore_backup(db: Session, filename: str) -> dict:
     """Restore a database from a backup file."""
-    filepath = BACKUP_DIR / filename
+    try:
+        safe_name = validate_backup_filename(filename)
+    except ValueError:
+        return {"success": False, "error": "Invalid backup filename"}
+    filepath = BACKUP_DIR / safe_name
     if not filepath.exists():
-        return {"success": False, "error": f"Backup file not found: {filename}"}
+        return {"success": False, "error": f"Backup file not found: {safe_name}"}
 
     params = _parse_db_url(DATABASE_URL)
     env = {"PGPASSWORD": params["password"]}
@@ -87,7 +116,7 @@ def restore_backup(db: Session, filename: str) -> dict:
         if result.returncode != 0 and "error" in result.stderr.lower():
             return {"success": False, "error": result.stderr[:500]}
 
-        return {"success": True, "message": f"Restored from {filename}"}
+        return {"success": True, "message": f"Restored from {safe_name}"}
 
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Restore timed out"}

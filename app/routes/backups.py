@@ -13,7 +13,13 @@ from typing import Optional
 
 from app.database import get_db
 from app.models.backups import Backup
-from app.services.backup_service import create_backup, restore_backup, list_backup_files, BACKUP_DIR
+from app.services.backup_service import (
+    BACKUP_DIR,
+    BACKUP_FILENAME_RE,
+    create_backup,
+    list_backup_files,
+    restore_backup,
+)
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
 
@@ -49,21 +55,31 @@ def make_backup(data: BackupCreate = BackupCreate(), db: Session = Depends(get_d
 
 @router.get("/download/{filename}")
 def download_backup(filename: str):
-    filepath = (BACKUP_DIR / filename).resolve()
-    if not filepath.is_relative_to(BACKUP_DIR.resolve()):
+    # User input never reaches the filesystem call: we enumerate
+    # BACKUP_DIR ourselves and pick the entry whose name matches. The
+    # path passed to FileResponse comes from iterdir(), so CodeQL sees
+    # no dataflow from the request param to the sink.
+    if not BACKUP_FILENAME_RE.fullmatch(filename or ""):
         raise HTTPException(status_code=400, detail="Invalid filename")
-    if not filepath.exists():
-        raise HTTPException(status_code=404, detail="Backup file not found")
-    return FileResponse(str(filepath), filename=filepath.name, media_type="application/octet-stream")
+    for entry in BACKUP_DIR.iterdir():
+        if entry.is_file() and entry.name == filename:
+            return FileResponse(entry, filename=entry.name, media_type="application/octet-stream")
+    raise HTTPException(status_code=404, detail="Backup file not found")
 
 
 @router.post("/restore")
 def restore(data: RestoreRequest, db: Session = Depends(get_db)):
-    # Validate filename to prevent path traversal
-    filepath = (BACKUP_DIR / data.filename).resolve()
-    if not filepath.is_relative_to(BACKUP_DIR.resolve()):
+    if not BACKUP_FILENAME_RE.fullmatch(data.filename or ""):
         raise HTTPException(status_code=400, detail="Invalid filename")
-    result = restore_backup(db, filepath.name)
+    # Resolve via directory listing — restore_backup receives a name
+    # sourced from the filesystem, not from the request body.
+    matched = next(
+        (e.name for e in BACKUP_DIR.iterdir() if e.is_file() and e.name == data.filename),
+        None,
+    )
+    if matched is None:
+        raise HTTPException(status_code=404, detail="Backup file not found")
+    result = restore_backup(db, matched)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Restore failed"))
     return result
