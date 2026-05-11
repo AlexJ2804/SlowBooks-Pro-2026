@@ -40,7 +40,13 @@ logger = logging.getLogger(__name__)
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 TIMEOUT_SECONDS = 120  # Statements take longer than receipts; multi-page reasoning.
-MAX_TOKENS = 8192      # Up to ~150 transactions in JSON.
+# 32K output tokens covers the densest statements we've seen (Amex with
+# foreign-spend rows runs ~30K input tokens / ~15K output tokens for
+# 100+ transactions). The previous 8192 cap truncated mid-array on
+# those — the model returned a partial JSON that re.search couldn't
+# close, surfacing as "Model returned malformed JSON". Sonnet 4.6's
+# hard cap is 64K so this still leaves headroom.
+MAX_TOKENS = 32768
 ANTHROPIC_VERSION = "2023-06-01"
 
 # Anthropic PDF document limits (per API docs, late 2025): 32 MB and 100
