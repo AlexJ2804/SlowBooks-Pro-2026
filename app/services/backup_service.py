@@ -17,10 +17,11 @@ BACKUP_DIR = Path(__file__).parent.parent.parent / "backups"
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
 # Matches the exact format create_backup emits: slowbooks_YYYYMMDD_HHMMSS.sql.
-# Used as the only allowlist for user-supplied filenames hitting the
-# filesystem — anything else (path separators, '..', other extensions) is
-# rejected outright before any Path construction.
-_BACKUP_FILENAME_RE = re.compile(r"^slowbooks_(\d{8})_(\d{6})\.sql$")
+# Exported (no leading underscore) because the FastAPI routes inline the
+# match directly before any Path construction — CodeQL's py/path-injection
+# dataflow recognizes an inline re.fullmatch as a sanitizer but does not
+# trace through helper-function wrappers reliably.
+BACKUP_FILENAME_RE = re.compile(r"^slowbooks_(\d{8})_(\d{6})\.sql$")
 
 
 def validate_backup_filename(filename: str) -> str:
@@ -34,7 +35,7 @@ def validate_backup_filename(filename: str) -> str:
     """
     if not isinstance(filename, str):
         raise ValueError("Invalid backup filename")
-    m = _BACKUP_FILENAME_RE.fullmatch(filename)
+    m = BACKUP_FILENAME_RE.fullmatch(filename)
     if not m:
         raise ValueError("Invalid backup filename")
     return f"slowbooks_{m.group(1)}_{m.group(2)}.sql"
