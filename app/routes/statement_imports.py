@@ -35,6 +35,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.accounts import Account
+from app.models.balance_snapshots import BalanceSnapshot
 from app.models.banking import BankAccount, BankTransaction
 from app.models.statement_imports import StatementImport
 from app.routes.settings import _get_all as get_settings
@@ -77,6 +79,63 @@ def _normalize_description(desc: Optional[str]) -> str:
 def _dedup_key(tx_date, amount: float, description: Optional[str]) -> tuple:
     # Two-decimal string so float drift doesn't break equality.
     return (tx_date, f"{float(amount):.2f}", _normalize_description(description))
+
+
+def _upsert_snapshot_from_statement(db: Session, si: StatementImport, parsed: dict) -> bool:
+    """Write a balance_snapshot from a parsed statement, if possible.
+
+    Conditions to write:
+      * bank_account is linked to a COA account_id
+      * parsed.statement.closing_balance is a number
+      * statement period_end is known
+
+    Sign convention: closing_balance is stored verbatim. The COA account's
+    `account_kind` determines whether net_worth.py flips the sign at
+    sum-time (credit_card / loan are flipped to negative contributions).
+    So a Citi statement with closing_balance = $1,234.56 lands as a
+    +1234.56 snapshot, and the net-worth dashboard renders it as
+    -$1,234.56 owed automatically.
+
+    Returns True if a snapshot was written/updated, False otherwise.
+    Failure to write is non-fatal — the caller commits bank_transactions
+    regardless. We surface success in the /post response so the user
+    knows whether their Net Worth was just refreshed.
+    """
+    ba = db.query(BankAccount).filter(BankAccount.id == si.bank_account_id).first()
+    if not ba or not ba.account_id:
+        return False
+
+    header = (parsed or {}).get("statement") or {}
+    closing = header.get("closing_balance")
+    if closing is None:
+        return False
+    if not si.period_end:
+        return False
+
+    coa = db.query(Account).filter(Account.id == ba.account_id).first()
+    if not coa:
+        return False
+    currency = (coa.currency or "USD").upper()
+
+    existing = (
+        db.query(BalanceSnapshot)
+        .filter(
+            BalanceSnapshot.account_id == ba.account_id,
+            BalanceSnapshot.as_of_date == si.period_end,
+        )
+        .first()
+    )
+    if existing:
+        existing.balance = closing
+        existing.currency = currency
+    else:
+        db.add(BalanceSnapshot(
+            account_id=ba.account_id,
+            as_of_date=si.period_end,
+            balance=closing,
+            currency=currency,
+        ))
+    return True
 
 
 def _sanitize_filename(raw: str) -> str:
@@ -391,6 +450,14 @@ def post_import(import_id: int, db: Session = Depends(get_db)):
 
     si.status = "posted"
     si.posted_at = datetime.utcnow()
+
+    # Auto-write a balance_snapshot from the parsed statement's
+    # closing_balance, if the bank_account is linked to a COA row.
+    # Lets the Net Worth dashboard reflect this statement's ending
+    # balance with no manual /#/balances entry. Atomic with the
+    # bank_transactions write since both go through the same commit.
+    snapshot_written = _upsert_snapshot_from_statement(db, si, parsed)
+
     db.commit()
     db.refresh(si)
 
@@ -399,6 +466,7 @@ def post_import(import_id: int, db: Session = Depends(get_db)):
         "created_count": created,
         "duplicate_count": duplicates,
         "invalid_count": len(transactions) - created - duplicates,
+        "snapshot_written": snapshot_written,
     }
 
 
