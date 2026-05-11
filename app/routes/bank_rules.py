@@ -89,6 +89,12 @@ def apply_rules(db: Session = Depends(get_db)):
             if hit:
                 if rule.account_id:
                     txn.category_account_id = rule.account_id
+                # Phase 3: propagate the rule's class_id too, when set.
+                # A class-less rule just doesn't touch class_id, so a
+                # txn that already had a class manually assigned keeps
+                # it across rule re-applies.
+                if rule.class_id is not None:
+                    txn.class_id = rule.class_id
                 txn.match_status = "auto"
                 matched += 1
                 break

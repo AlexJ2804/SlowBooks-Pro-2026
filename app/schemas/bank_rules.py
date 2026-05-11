@@ -9,6 +9,7 @@ class BankRuleCreate(BaseModel):
     pattern: str
     account_id: Optional[int] = None
     vendor_id: Optional[int] = None
+    class_id: Optional[int] = None
     rule_type: str = "contains"
     priority: int = 0
     is_active: bool = True
@@ -19,6 +20,7 @@ class BankRuleUpdate(BaseModel):
     pattern: Optional[str] = None
     account_id: Optional[int] = None
     vendor_id: Optional[int] = None
+    class_id: Optional[int] = None
     rule_type: Optional[str] = None
     priority: Optional[int] = None
     is_active: Optional[bool] = None
@@ -30,6 +32,7 @@ class BankRuleResponse(BaseModel):
     pattern: str
     account_id: Optional[int]
     vendor_id: Optional[int]
+    class_id: Optional[int]
     rule_type: str
     priority: int
     is_active: bool
