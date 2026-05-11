@@ -458,8 +458,13 @@ const App = {
             // Latest balance_snapshot (same number Net Worth and the
             // Bank Accounts page show). Accounts without a snapshot get
             // an em-dash; balance comes through as null in that case.
-            const value = (ba.balance != null)
-                ? formatCurrency(ba.balance, ba.currency)
+            // Credit cards store the amount owed as a positive number;
+            // flip the sign on display so the tile reads as debt.
+            const displayBalance = (ba.balance != null && ba.account_kind === 'credit_card')
+                ? -ba.balance
+                : ba.balance;
+            const value = (displayBalance != null)
+                ? formatCurrency(displayBalance, ba.currency)
                 : '—';
             const asOf = ba.as_of
                 ? `<div style="font-size:10px; color:var(--text-muted); margin-top:4px;">as of ${formatDate(ba.as_of)}</div>`

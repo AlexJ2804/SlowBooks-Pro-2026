@@ -44,6 +44,10 @@ class BankAccount(Base):
     account = relationship("Account", foreign_keys=[account_id])
     transactions = relationship("BankTransaction", back_populates="bank_account")
 
+    @property
+    def account_kind(self):
+        return self.account.account_kind if self.account else None
+
 
 class BankTransaction(Base):
     __tablename__ = "bank_transactions"

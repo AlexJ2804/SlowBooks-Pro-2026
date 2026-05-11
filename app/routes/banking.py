@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, func as sqlfunc
 
 from app.database import get_db
@@ -65,6 +65,7 @@ def _serialize_bank_account(ba: BankAccount, snap: BalanceSnapshot | None) -> di
         "latest_balance": float(snap.balance) if snap else None,
         "latest_balance_as_of": snap.as_of_date.isoformat() if snap else None,
         "currency": snap.currency if snap else None,
+        "account_kind": ba.account_kind,
     }
 
 
@@ -73,6 +74,7 @@ def _serialize_bank_account(ba: BankAccount, snap: BalanceSnapshot | None) -> di
 def list_bank_accounts(db: Session = Depends(get_db)):
     accounts = (
         db.query(BankAccount)
+        .options(joinedload(BankAccount.account))
         .filter(BankAccount.is_active == True)
         .order_by(BankAccount.name)
         .all()
