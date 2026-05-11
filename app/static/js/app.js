@@ -454,12 +454,22 @@ const App = {
             </tr>`
         ).join('') || '<tr><td colspan="3" style="color:var(--text-muted); font-size:11px;">No payments recorded yet</td></tr>';
 
-        let bankCards = data.bank_balances.map(ba =>
-            `<div class="card" style="cursor:pointer" onclick="App.navigate('#/banking')">
+        let bankCards = data.bank_balances.map(ba => {
+            // Latest balance_snapshot (same number Net Worth and the
+            // Bank Accounts page show). Accounts without a snapshot get
+            // an em-dash; balance comes through as null in that case.
+            const value = (ba.balance != null)
+                ? formatCurrency(ba.balance, ba.currency)
+                : '—';
+            const asOf = ba.as_of
+                ? `<div style="font-size:10px; color:var(--text-muted); margin-top:4px;">as of ${formatDate(ba.as_of)}</div>`
+                : '';
+            return `<div class="card" style="cursor:pointer" onclick="App.navigate('#/banking')">
                 <div class="card-header">${escapeHtml(ba.name)}</div>
-                <div class="card-value">${formatCurrency(ba.balance)}</div>
-            </div>`
-        ).join('');
+                <div class="card-value">${value}</div>
+                ${asOf}
+            </div>`;
+        }).join('');
 
         if (!bankCards) {
             bankCards = `<div class="card">

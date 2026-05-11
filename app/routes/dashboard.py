@@ -3,16 +3,41 @@ from calendar import monthrange
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from decimal import Decimal
 
 from app.database import get_db
+from app.models.balance_snapshots import BalanceSnapshot
 from app.models.invoices import Invoice, InvoiceStatus
 from app.models.payments import Payment
 from app.models.contacts import Customer
 from app.models.banking import BankAccount
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+
+def _latest_snapshots_by_aid(db: Session) -> dict:
+    """{accounts.id: BalanceSnapshot} for the most-recent snapshot per
+    linked COA account. Same shape as banking.py and net_worth.py — the
+    dashboard, Bank Accounts page, and Net Worth dashboard all need to
+    agree on what counts as "current balance"."""
+    latest_dates = (
+        db.query(
+            BalanceSnapshot.account_id.label("aid"),
+            func.max(BalanceSnapshot.as_of_date).label("max_date"),
+        )
+        .group_by(BalanceSnapshot.account_id)
+        .subquery()
+    )
+    rows = (
+        db.query(BalanceSnapshot)
+        .join(latest_dates, and_(
+            BalanceSnapshot.account_id == latest_dates.c.aid,
+            BalanceSnapshot.as_of_date == latest_dates.c.max_date,
+        ))
+        .all()
+    )
+    return {r.account_id: r for r in rows}
 
 
 @router.get("")
@@ -32,6 +57,7 @@ def get_dashboard(db: Session = Depends(get_db)):
     recent_payments = db.query(Payment).order_by(Payment.created_at.desc()).limit(5).all()
 
     bank_balances = db.query(BankAccount).filter(BankAccount.is_active == True).all()
+    snapshots = _latest_snapshots_by_aid(db)
 
     # Feature 1: Total payables (bills)
     total_payables = 0.0
@@ -77,7 +103,27 @@ def get_dashboard(db: Session = Depends(get_db)):
             for p in recent_payments
         ],
         "bank_balances": [
-            {"id": ba.id, "name": ba.name, "balance": float(ba.balance)}
+            # bank_accounts.balance is the legacy column (never updated
+            # past 0 at INSERT); read the latest snapshot per linked COA
+            # account instead, mirroring /#/banking and Net Worth. Null
+            # balance/currency surface when an account has no snapshot
+            # yet, and the frontend renders an em-dash for those.
+            {
+                "id": ba.id,
+                "name": ba.name,
+                "balance": float(snapshots[ba.account_id].balance)
+                            if ba.account_id is not None
+                            and ba.account_id in snapshots
+                            else None,
+                "currency": snapshots[ba.account_id].currency
+                            if ba.account_id is not None
+                            and ba.account_id in snapshots
+                            else None,
+                "as_of": snapshots[ba.account_id].as_of_date.isoformat()
+                            if ba.account_id is not None
+                            and ba.account_id in snapshots
+                            else None,
+            }
             for ba in bank_balances
         ],
     }
