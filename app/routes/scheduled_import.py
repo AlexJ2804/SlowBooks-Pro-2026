@@ -15,10 +15,14 @@ Synchronous because the underlying flow is short for a typical week
 worst case. Front-end disables the button + shows "Scanning…" while
 the request is in flight.
 """
+import logging
+
 from fastapi import APIRouter, HTTPException
 
 from app.services.manual_import import ManualImportError, run_import_now
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/scheduled-import', tags=['scheduled-import'])
 
@@ -28,9 +32,19 @@ def run_now():
     """Pull the latest IIF from Apps Script and import it immediately."""
     try:
         return run_import_now()
-    except ManualImportError as exc:
-        # 502 because Apps Script (the upstream) is the failure source in
-        # the realistic cases (env missing, HTTP timeout, Apps Script JSON
-        # error). Use plain str(exc) for the detail since ManualImportError
-        # already crafts a user-readable message.
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ManualImportError:
+        # ManualImportError messages can transitively include upstream
+        # response bodies (Apps Script JSON, requests-RequestException
+        # text) or DB constraint detail from the importer. Don't echo
+        # them in the HTTP response (CodeQL py/stack-trace-exposure) —
+        # log the full exception with traceback server-side and return
+        # a generic 502 so the admin can grep the container logs for
+        # the actual cause.
+        logger.warning(
+            "Manual IIF import failed via /api/scheduled-import/run-now",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Manual import failed; check server logs for details.",
+        )

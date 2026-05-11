@@ -101,23 +101,29 @@ def test_run_now_propagates_importer_errors_field(client, monkeypatch, tmp_path)
     assert 'bad date' in body['errors'][0]
 
 
-def test_run_now_502_when_env_missing(client, monkeypatch):
-    """No URL/token configured → 502 with a message that tells the user
-    exactly which env vars to set."""
+def test_run_now_502_when_env_missing(client, monkeypatch, caplog):
+    """No URL/token configured → 502 with a generic detail; the real
+    cause (which env vars are missing) lands in server logs only.
+    Generic-detail contract: don't echo exception data to the HTTP
+    client (CodeQL py/stack-trace-exposure)."""
+    import logging
     monkeypatch.delenv('APPS_SCRIPT_WEEKLY_URL', raising=False)
     monkeypatch.delenv('APPS_SCRIPT_WEEKLY_TOKEN', raising=False)
 
-    r = client.post('/api/scheduled-import/run-now')
+    with caplog.at_level(logging.WARNING, logger='app.routes.scheduled_import'):
+        r = client.post('/api/scheduled-import/run-now')
 
     assert r.status_code == 502, r.text
-    assert 'APPS_SCRIPT_WEEKLY_URL' in r.json()['detail']
-    assert 'APPS_SCRIPT_WEEKLY_TOKEN' in r.json()['detail']
+    assert 'check server logs' in r.json()['detail'].lower()
+    assert any('APPS_SCRIPT_WEEKLY_URL' in rec.message or
+               'APPS_SCRIPT_WEEKLY_URL' in (rec.exc_text or '')
+               for rec in caplog.records), caplog.text
 
 
-def test_run_now_502_on_apps_script_json_error(client, monkeypatch):
-    """Apps Script can't return non-200 status codes, so its errors come
-    back as a 200 with JSON body. The service has to detect that shape
-    and surface it rather than treating the JSON string as IIF content."""
+def test_run_now_502_on_apps_script_json_error(client, monkeypatch, caplog):
+    """Apps Script error bodies arrive as 200+JSON; they still produce a
+    502 with a generic detail. Details land in logs (with traceback)."""
+    import logging
     json_body = '{"error": "invalid token", "status": 401}'
 
     with patch('app.services.manual_import.requests.get') as mock_get:
@@ -125,40 +131,46 @@ def test_run_now_502_on_apps_script_json_error(client, monkeypatch):
             text=json_body, headers={'Content-Type': 'application/json'},
         )
 
-        r = client.post('/api/scheduled-import/run-now')
+        with caplog.at_level(logging.WARNING, logger='app.routes.scheduled_import'):
+            r = client.post('/api/scheduled-import/run-now')
 
     assert r.status_code == 502, r.text
-    detail = r.json()['detail']
-    assert 'invalid token' in detail
-    assert '401' in detail
+    assert 'check server logs' in r.json()['detail'].lower()
+    assert any('invalid token' in (rec.exc_text or '') for rec in caplog.records), caplog.text
 
 
-def test_run_now_502_on_http_failure(client, monkeypatch):
-    """Network failure / DNS / Apps Script unreachable → 502 with the
-    underlying RequestException message. We don't leak the URL or token."""
+def test_run_now_502_on_http_failure(client, monkeypatch, caplog):
+    """Network failure / DNS / Apps Script unreachable → 502 with a
+    generic detail; underlying RequestException lives in logs."""
+    import logging
     import requests as _requests
 
     with patch('app.services.manual_import.requests.get') as mock_get:
         mock_get.side_effect = _requests.ConnectionError('DNS lookup failed')
 
-        r = client.post('/api/scheduled-import/run-now')
+        with caplog.at_level(logging.WARNING, logger='app.routes.scheduled_import'):
+            r = client.post('/api/scheduled-import/run-now')
 
     assert r.status_code == 502, r.text
-    assert 'DNS lookup failed' in r.json()['detail']
+    assert 'check server logs' in r.json()['detail'].lower()
+    assert any('DNS lookup failed' in (rec.exc_text or '') for rec in caplog.records), caplog.text
 
 
-def test_run_now_502_on_non_200_status(client, monkeypatch):
-    """A genuine non-200 (e.g. 503 from Google) should bubble up as 502
-    with the upstream status + body excerpt."""
+def test_run_now_502_on_non_200_status(client, monkeypatch, caplog):
+    """A genuine non-200 (e.g. 503 from Google) → 502 with generic
+    detail; upstream status + body excerpt go to logs only."""
+    import logging
     with patch('app.services.manual_import.requests.get') as mock_get:
         mock_get.return_value = _mock_response(
             status_code=503, text='Service Unavailable',
         )
 
-        r = client.post('/api/scheduled-import/run-now')
+        with caplog.at_level(logging.WARNING, logger='app.routes.scheduled_import'):
+            r = client.post('/api/scheduled-import/run-now')
 
     assert r.status_code == 502, r.text
-    assert '503' in r.json()['detail']
+    assert 'check server logs' in r.json()['detail'].lower()
+    assert any('503' in (rec.exc_text or '') for rec in caplog.records), caplog.text
 
 
 def test_run_now_passes_token_in_querystring(client, monkeypatch):
