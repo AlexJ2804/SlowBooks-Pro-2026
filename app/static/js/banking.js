@@ -21,9 +21,13 @@ const BankingPage = {
         } else {
             html += `<div class="card-grid">`;
             for (const ba of accounts) {
+                // Credit cards: flip the sign on display so a $1,113.35
+                // amount-owed reads as -$1,113.35. Underlying ba.balance
+                // keeps the standard positive-is-debt convention.
+                const displayBalance = ba.account_kind === 'credit_card' ? -ba.balance : ba.balance;
                 html += `<div class="card" style="cursor:pointer" onclick="BankingPage.viewRegister(${ba.id})">
                     <div class="card-header">${escapeHtml(ba.name)}</div>
-                    <div class="card-value">${formatCurrency(ba.balance)}</div>
+                    <div class="card-value">${formatCurrency(displayBalance)}</div>
                     <div style="font-size:12px; color:var(--gray-400); margin-top:4px;">
                         ${escapeHtml(ba.bank_name || '')} ${ba.last_four ? '****' + ba.last_four : ''}
                     </div>
@@ -52,7 +56,7 @@ const BankingPage = {
             </div>
             <div class="card" style="margin-bottom:16px;">
                 <div class="card-header">Current Balance</div>
-                <div class="card-value">${formatCurrency(ba.balance)}</div>
+                <div class="card-value">${formatCurrency(ba.account_kind === 'credit_card' ? -ba.balance : ba.balance)}</div>
             </div>`;
 
         if (txns.length === 0) {

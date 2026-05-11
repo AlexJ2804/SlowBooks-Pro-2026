@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sqlfunc
 
 from app.database import get_db
@@ -27,7 +27,14 @@ router = APIRouter(prefix="/api/banking", tags=["banking"])
 # Bank Accounts
 @router.get("/accounts", response_model=list[BankAccountResponse])
 def list_bank_accounts(db: Session = Depends(get_db)):
-    return db.query(BankAccount).filter(BankAccount.is_active == True).order_by(BankAccount.name).all()
+    # joinedload so the account_kind property doesn't trigger N+1 selects.
+    return (
+        db.query(BankAccount)
+        .options(joinedload(BankAccount.account))
+        .filter(BankAccount.is_active == True)
+        .order_by(BankAccount.name)
+        .all()
+    )
 
 
 @router.get("/accounts/{account_id}", response_model=BankAccountResponse)

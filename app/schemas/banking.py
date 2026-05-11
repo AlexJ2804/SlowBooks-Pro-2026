@@ -31,6 +31,7 @@ class BankAccountResponse(BaseModel):
     last_four: Optional[str]
     balance: Decimal
     is_active: bool
+    account_kind: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
