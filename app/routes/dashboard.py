@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from calendar import monthrange
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, func
 from decimal import Decimal
 
@@ -56,7 +56,12 @@ def get_dashboard(db: Session = Depends(get_db)):
     recent_invoices = db.query(Invoice).order_by(Invoice.created_at.desc()).limit(5).all()
     recent_payments = db.query(Payment).order_by(Payment.created_at.desc()).limit(5).all()
 
-    bank_balances = db.query(BankAccount).filter(BankAccount.is_active == True).all()
+    bank_balances = (
+        db.query(BankAccount)
+        .options(joinedload(BankAccount.account))
+        .filter(BankAccount.is_active == True)
+        .all()
+    )
     snapshots = _latest_snapshots_by_aid(db)
 
     # Feature 1: Total payables (bills)
@@ -123,6 +128,7 @@ def get_dashboard(db: Session = Depends(get_db)):
                             if ba.account_id is not None
                             and ba.account_id in snapshots
                             else None,
+                "account_kind": ba.account_kind,
             }
             for ba in bank_balances
         ],

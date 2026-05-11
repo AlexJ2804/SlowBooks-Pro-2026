@@ -27,8 +27,13 @@ const BankingPage = {
                 // ignore it. Accounts with no snapshot yet (e.g. a
                 // freshly-linked bank with no balance entered) get an
                 // em-dash placeholder so the user can tell at a glance.
-                const valueDisplay = (ba.latest_balance != null)
-                    ? formatCurrency(ba.latest_balance, ba.currency)
+                // Credit cards: flip the sign on display so a $1,113.35
+                // amount-owed reads as -$1,113.35.
+                const displayBalance = (ba.latest_balance != null && ba.account_kind === 'credit_card')
+                    ? -ba.latest_balance
+                    : ba.latest_balance;
+                const valueDisplay = (displayBalance != null)
+                    ? formatCurrency(displayBalance, ba.currency)
                     : '—';
                 const asOfHint = ba.latest_balance_as_of
                     ? ` as of ${formatDate(ba.latest_balance_as_of)}`
@@ -64,7 +69,7 @@ const BankingPage = {
             </div>
             <div class="card" style="margin-bottom:16px;">
                 <div class="card-header">Current Balance${ba.latest_balance_as_of ? ` <span style="font-size:11px; font-weight:normal; color:var(--gray-400);">as of ${formatDate(ba.latest_balance_as_of)}</span>` : ''}</div>
-                <div class="card-value">${ba.latest_balance != null ? formatCurrency(ba.latest_balance, ba.currency) : '—'}</div>
+                <div class="card-value">${ba.latest_balance != null ? formatCurrency(ba.account_kind === 'credit_card' ? -ba.latest_balance : ba.latest_balance, ba.currency) : '—'}</div>
             </div>`;
 
         if (txns.length === 0) {
