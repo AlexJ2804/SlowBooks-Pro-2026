@@ -19,16 +19,25 @@ BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 # Matches the exact format create_backup emits: slowbooks_YYYYMMDD_HHMMSS.sql.
 # Used as the only allowlist for user-supplied filenames hitting the
 # filesystem — anything else (path separators, '..', other extensions) is
-# rejected outright before any Path construction. CodeQL treats this as a
-# py/path-injection sanitizer.
-_BACKUP_FILENAME_RE = re.compile(r"^slowbooks_\d{8}_\d{6}\.sql$")
+# rejected outright before any Path construction.
+_BACKUP_FILENAME_RE = re.compile(r"^slowbooks_(\d{8})_(\d{6})\.sql$")
 
 
 def validate_backup_filename(filename: str) -> str:
-    """Return filename if it matches the safe backup-name pattern, else raise ValueError."""
-    if not isinstance(filename, str) or not _BACKUP_FILENAME_RE.fullmatch(filename):
+    """Return a safe backup filename, or raise ValueError if it doesn't match the allowlist.
+
+    The returned string is *reconstructed* from a constant template plus
+    digit-only regex groups, not echoed from the input — so it cannot
+    contain path separators, '..', or any other byte that wasn't an ASCII
+    digit. CodeQL's py/path-injection dataflow treats this as full
+    sanitization (it tracks the value as a new, untainted string).
+    """
+    if not isinstance(filename, str):
         raise ValueError("Invalid backup filename")
-    return filename
+    m = _BACKUP_FILENAME_RE.fullmatch(filename)
+    if not m:
+        raise ValueError("Invalid backup filename")
+    return f"slowbooks_{m.group(1)}_{m.group(2)}.sql"
 
 
 def _parse_db_url(url: str) -> dict:
