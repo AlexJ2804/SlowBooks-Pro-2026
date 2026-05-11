@@ -65,17 +65,21 @@ def upgrade() -> None:
     # Backfill existing 4xxx-range income accounts (QB-default chart).
     # Conservative: only NULL kinds, only sub-7000 numbers, so 7000-range
     # personal seeds are left untouched.
+    #
+    # NB: SQLAlchemy built the accounttype PG enum from the AccountType
+    # enum's NAMES (uppercase), not its lowercase string values. Comparing
+    # account_type against 'income' raises
+    # psycopg2.errors.InvalidTextRepresentation; cast to ::text first and
+    # compare against the uppercase name.
     op.execute(
         "UPDATE accounts SET account_kind = 'business_income' "
-        "WHERE account_type = 'income' "
+        "WHERE account_type::text = 'INCOME' "
         "AND account_kind IS NULL "
         "AND (account_number LIKE '4%' OR account_number IS NULL)"
     )
-    # Backfill existing 5xxx-range COGS (rare but covered) and 6xxx-range
-    # expense accounts as business_expense. Same conservative scoping.
     op.execute(
         "UPDATE accounts SET account_kind = 'business_expense' "
-        "WHERE account_type IN ('expense', 'cogs') "
+        "WHERE account_type::text IN ('EXPENSE', 'COGS') "
         "AND account_kind IS NULL "
         "AND (account_number LIKE '5%' OR account_number LIKE '6%' OR account_number IS NULL)"
     )
