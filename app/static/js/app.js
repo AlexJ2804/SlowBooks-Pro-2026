@@ -454,12 +454,15 @@ const App = {
             </tr>`
         ).join('') || '<tr><td colspan="3" style="color:var(--text-muted); font-size:11px;">No payments recorded yet</td></tr>';
 
-        let bankCards = data.bank_balances.map(ba =>
-            `<div class="card" style="cursor:pointer" onclick="App.navigate('#/banking')">
+        let bankCards = data.bank_balances.map(ba => {
+            // Credit cards store the amount owed as a positive number; flip
+            // the sign on display so the tile reads as debt (e.g. -$1,113.35).
+            const displayBalance = ba.account_kind === 'credit_card' ? -ba.balance : ba.balance;
+            return `<div class="card" style="cursor:pointer" onclick="App.navigate('#/banking')">
                 <div class="card-header">${escapeHtml(ba.name)}</div>
-                <div class="card-value">${formatCurrency(ba.balance)}</div>
-            </div>`
-        ).join('');
+                <div class="card-value">${formatCurrency(displayBalance)}</div>
+            </div>`;
+        }).join('');
 
         if (!bankCards) {
             bankCards = `<div class="card">

@@ -11,6 +11,7 @@ from app.models.invoices import Invoice, InvoiceStatus
 from app.models.payments import Payment
 from app.models.contacts import Customer
 from app.models.banking import BankAccount
+from app.models.accounts import Account
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -31,7 +32,12 @@ def get_dashboard(db: Session = Depends(get_db)):
     recent_invoices = db.query(Invoice).order_by(Invoice.created_at.desc()).limit(5).all()
     recent_payments = db.query(Payment).order_by(Payment.created_at.desc()).limit(5).all()
 
-    bank_balances = db.query(BankAccount).filter(BankAccount.is_active == True).all()
+    bank_balances = (
+        db.query(BankAccount, Account.account_kind)
+        .outerjoin(Account, Account.id == BankAccount.account_id)
+        .filter(BankAccount.is_active == True)
+        .all()
+    )
 
     # Feature 1: Total payables (bills)
     total_payables = 0.0
@@ -77,8 +83,13 @@ def get_dashboard(db: Session = Depends(get_db)):
             for p in recent_payments
         ],
         "bank_balances": [
-            {"id": ba.id, "name": ba.name, "balance": float(ba.balance)}
-            for ba in bank_balances
+            {
+                "id": ba.id,
+                "name": ba.name,
+                "balance": float(ba.balance),
+                "account_kind": kind,
+            }
+            for ba, kind in bank_balances
         ],
     }
 
