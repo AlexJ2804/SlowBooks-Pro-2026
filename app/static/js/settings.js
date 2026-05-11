@@ -452,7 +452,7 @@ const SettingsPage = {
                         <td><strong>${escapeHtml(c.name)}</strong> ${sysBadge} ${archivedBadge}</td>
                         <td>${c.is_archived ? 'Archived' : 'Active'}</td>
                         <td class="actions">
-                            <button class="btn btn-sm btn-secondary" ${locked ? 'disabled title="System default — cannot be renamed"' : `onclick="SettingsPage.renameClass(${c.id}, '${escapeHtml(c.name).replace(/'/g, "\\'")}')"`}>Rename</button>
+                            <button class="btn btn-sm btn-secondary" ${locked ? 'disabled title="System default — cannot be renamed"' : `onclick="SettingsPage.renameClass(${c.id}, '${escapeHtml(escapeJs(c.name))}')"`}>Rename</button>
                             <button class="btn btn-sm btn-secondary" ${locked ? 'disabled title="System default — cannot be archived"' : `onclick="SettingsPage.toggleArchiveClass(${c.id}, ${!c.is_archived})"`}>${c.is_archived ? 'Unarchive' : 'Archive'}</button>
                         </td>
                     </tr>`;

@@ -287,7 +287,7 @@ const BillsPage = {
                         ${(prefill && prefill.vendor_name_for_inline_create) ? `
                           <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">
                             Receipt vendor "<strong>${escapeHtml(prefill.vendor_name_for_inline_create)}</strong>" didn't match an existing vendor.
-                            <a href="#" onclick="event.preventDefault(); BillsPage.newVendorPrefilled('${escapeHtml(prefill.vendor_name_for_inline_create).replace(/'/g, "\\'")}')">Create it →</a>
+                            <a href="#" onclick="event.preventDefault(); BillsPage.newVendorPrefilled('${escapeHtml(escapeJs(prefill.vendor_name_for_inline_create))}')">Create it →</a>
                           </div>` : ''}
                     </div>
                     <div class="form-group"><label>Bill Number *</label>
@@ -406,7 +406,7 @@ const BillsPage = {
             if (status) {
                 status.innerHTML = `Couldn't extract receipt data: ${escapeHtml(payload.error || 'unknown')}.
                     Open the bill form anyway with this file attached?
-                    <button class="btn btn-sm btn-secondary" type="button" onclick="BillsPage._fallbackToManual('${escapeHtml(payload.attachment_token || '').replace(/'/g, "\\'")}', '${escapeHtml(payload.filename || 'receipt').replace(/'/g, "\\'")}')">Continue manually</button>`;
+                    <button class="btn btn-sm btn-secondary" type="button" onclick="BillsPage._fallbackToManual('${escapeHtml(escapeJs(payload.attachment_token || ''))}', '${escapeHtml(escapeJs(payload.filename || 'receipt'))}')">Continue manually</button>`;
             }
             if (submitBtn) submitBtn.disabled = false;
             return;

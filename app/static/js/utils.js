@@ -58,6 +58,25 @@ function escapeHtml(str) {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// JS-string escape for values about to be embedded inside an inline-JS
+// HTML attribute, e.g. `onclick="foo('${escapeHtml(escapeJs(x))}')"`.
+// Backslash MUST be escaped first; otherwise a value containing `\'`
+// produces `\\'` which JS then parses as escaped-backslash + closing
+// quote, breaking out of the string context (CodeQL js/incomplete-
+// sanitization). Compose with escapeHtml to also handle the surrounding
+// HTML-attribute layer; escapeHtml turns `'` into `&#39;` which the HTML
+// parser decodes back to `'` for the JS engine, so the JS escape is
+// preserved end-to-end.
+function escapeJs(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
+}
+
 // Show or clear an inline error message immediately after a form field.
 // Used by the class-required pre-flight on every transaction form so the
 // failure is visible even after the toast auto-dismisses (3s).
