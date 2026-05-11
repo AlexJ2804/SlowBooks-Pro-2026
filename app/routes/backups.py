@@ -13,7 +13,13 @@ from typing import Optional
 
 from app.database import get_db
 from app.models.backups import Backup
-from app.services.backup_service import create_backup, restore_backup, list_backup_files, BACKUP_DIR
+from app.services.backup_service import (
+    BACKUP_DIR,
+    create_backup,
+    list_backup_files,
+    restore_backup,
+    validate_backup_filename,
+)
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
 
@@ -49,21 +55,23 @@ def make_backup(data: BackupCreate = BackupCreate(), db: Session = Depends(get_d
 
 @router.get("/download/{filename}")
 def download_backup(filename: str):
-    filepath = (BACKUP_DIR / filename).resolve()
-    if not filepath.is_relative_to(BACKUP_DIR.resolve()):
+    try:
+        safe_name = validate_backup_filename(filename)
+    except ValueError:
         raise HTTPException(status_code=400, detail="Invalid filename")
+    filepath = BACKUP_DIR / safe_name
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="Backup file not found")
-    return FileResponse(str(filepath), filename=filepath.name, media_type="application/octet-stream")
+    return FileResponse(str(filepath), filename=safe_name, media_type="application/octet-stream")
 
 
 @router.post("/restore")
 def restore(data: RestoreRequest, db: Session = Depends(get_db)):
-    # Validate filename to prevent path traversal
-    filepath = (BACKUP_DIR / data.filename).resolve()
-    if not filepath.is_relative_to(BACKUP_DIR.resolve()):
+    try:
+        safe_name = validate_backup_filename(data.filename)
+    except ValueError:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    result = restore_backup(db, filepath.name)
+    result = restore_backup(db, safe_name)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Restore failed"))
     return result

@@ -3,6 +3,7 @@
 # Feature 11: Database backup and restore accessible from settings
 # ============================================================================
 
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,20 @@ from app.models.backups import Backup
 
 BACKUP_DIR = Path(__file__).parent.parent.parent / "backups"
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+# Matches the exact format create_backup emits: slowbooks_YYYYMMDD_HHMMSS.sql.
+# Used as the only allowlist for user-supplied filenames hitting the
+# filesystem — anything else (path separators, '..', other extensions) is
+# rejected outright before any Path construction. CodeQL treats this as a
+# py/path-injection sanitizer.
+_BACKUP_FILENAME_RE = re.compile(r"^slowbooks_\d{8}_\d{6}\.sql$")
+
+
+def validate_backup_filename(filename: str) -> str:
+    """Return filename if it matches the safe backup-name pattern, else raise ValueError."""
+    if not isinstance(filename, str) or not _BACKUP_FILENAME_RE.fullmatch(filename):
+        raise ValueError("Invalid backup filename")
+    return filename
 
 
 def _parse_db_url(url: str) -> dict:
@@ -68,9 +83,13 @@ def create_backup(db: Session, notes: str = None, backup_type: str = "manual") -
 
 def restore_backup(db: Session, filename: str) -> dict:
     """Restore a database from a backup file."""
-    filepath = BACKUP_DIR / filename
+    try:
+        safe_name = validate_backup_filename(filename)
+    except ValueError:
+        return {"success": False, "error": "Invalid backup filename"}
+    filepath = BACKUP_DIR / safe_name
     if not filepath.exists():
-        return {"success": False, "error": f"Backup file not found: {filename}"}
+        return {"success": False, "error": f"Backup file not found: {safe_name}"}
 
     params = _parse_db_url(DATABASE_URL)
     env = {"PGPASSWORD": params["password"]}
@@ -87,7 +106,7 @@ def restore_backup(db: Session, filename: str) -> dict:
         if result.returncode != 0 and "error" in result.stderr.lower():
             return {"success": False, "error": result.stderr[:500]}
 
-        return {"success": True, "message": f"Restored from {filename}"}
+        return {"success": True, "message": f"Restored from {safe_name}"}
 
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Restore timed out"}
