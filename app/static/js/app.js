@@ -59,6 +59,8 @@ const App = {
         '/credit-scores': { page: 'credit-scores',   label: 'Credit Scores',      cabin: true, render: () => CreditScoresPage.render() },
         // Phase 2 — PDF statement ingestion (issue #1).
         '/statement-imports': { page: 'statement-imports', label: 'Statement Imports', cabin: true, render: () => StatementImportsPage.render() },
+        // Phase 3 — spending analytics: LLM-assisted categorization loop.
+        '/categorize':    { page: 'categorize',      label: 'Categorize',         render: () => CategorizePage.render() },
     },
 
     async navigate(hash) {
