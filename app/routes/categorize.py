@@ -28,6 +28,7 @@ from app.database import get_db
 from app.models.accounts import Account, AccountType
 from app.models.bank_rules import BankRule
 from app.models.banking import BankTransaction
+from app.models.classes import Class
 from app.routes.settings import _get_all as get_settings
 from app.services import categorizer
 
@@ -54,8 +55,17 @@ class AcceptRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     pattern: str = Field(..., min_length=1, max_length=200)
     account_id: int
+    # Phase 3: optional class attribution. NULL = "no business" (the
+    # implicit personal/household default). When set, the created
+    # BankRule carries the class_id and rule-apply stamps it onto every
+    # matching unmatched txn alongside the category.
+    class_id: Optional[int] = None
     rule_type: str = Field("contains", pattern="^(contains|starts_with|exact)$")
     priority: int = 0
+
+
+class ClassCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
 
 
 @router.get("/categories")
@@ -78,9 +88,70 @@ def list_target_categories(db: Session = Depends(get_db)):
             "name": a.name,
             "type": a.account_type.value,
             "account_number": a.account_number,
+            # Phase 3: surface account_kind so the frontend dropdown can
+            # group by Personal / Business / Transfer / etc.
+            "account_kind": a.account_kind,
         }
         for a in rows
     ]
+
+
+@router.get("/classes")
+def list_classes(db: Session = Depends(get_db)):
+    """Active classes for the per-business-attribution dropdown.
+
+    Skips archived rows. The "Uncategorized" system default is included
+    because users may legitimately want to tag a row with it explicitly
+    (vs leaving class_id NULL which means "no attribution"); the
+    frontend can decide how to display it.
+    """
+    rows = (
+        db.query(Class)
+        .filter(Class.is_archived == False)
+        .order_by(Class.is_system_default.desc(), Class.name)
+        .all()
+    )
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "is_system_default": c.is_system_default,
+        }
+        for c in rows
+    ]
+
+
+@router.post("/classes")
+def create_class(payload: ClassCreateRequest, db: Session = Depends(get_db)):
+    """Inline create — used by the categorize page's "+ New class" option.
+
+    Idempotent on name (case-insensitive): if a class already exists
+    with that name we return it instead of erroring. The same UI flow
+    can therefore fire repeatedly without needing to disable the input.
+    """
+    name = payload.name.strip()
+    existing = (
+        db.query(Class)
+        .filter(func.lower(Class.name) == name.lower())
+        .first()
+    )
+    if existing:
+        return {
+            "id": existing.id,
+            "name": existing.name,
+            "is_system_default": existing.is_system_default,
+            "created": False,
+        }
+    c = Class(name=name, is_archived=False, is_system_default=False)
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return {
+        "id": c.id,
+        "name": c.name,
+        "is_system_default": c.is_system_default,
+        "created": True,
+    }
 
 
 @router.get("/unmatched-merchants")
@@ -214,10 +285,27 @@ def accept(payload: AcceptRequest, db: Session = Depends(get_db)):
             detail="account_id must be an active income / expense / cogs account",
         )
 
+    # Validate class_id if provided. NULL is the implicit "no business
+    # attribution" default and is always allowed.
+    class_row: Optional[Class] = None
+    if payload.class_id is not None:
+        class_row = (
+            db.query(Class)
+            .filter(Class.id == payload.class_id)
+            .filter(Class.is_archived == False)
+            .first()
+        )
+        if not class_row:
+            raise HTTPException(
+                status_code=400,
+                detail="class_id must reference an active class",
+            )
+
     rule = BankRule(
         name=payload.name.strip(),
         pattern=payload.pattern.strip(),
         account_id=payload.account_id,
+        class_id=payload.class_id,
         rule_type=payload.rule_type,
         priority=payload.priority,
         is_active=True,
@@ -252,6 +340,8 @@ def accept(payload: AcceptRequest, db: Session = Depends(get_db)):
         )
         if hit:
             txn.category_account_id = rule.account_id
+            if rule.class_id is not None:
+                txn.class_id = rule.class_id
             txn.match_status = "auto"
             matched += 1
 
@@ -265,6 +355,8 @@ def accept(payload: AcceptRequest, db: Session = Depends(get_db)):
             "rule_type": rule.rule_type,
             "account_id": rule.account_id,
             "account_name": target.name,
+            "class_id": rule.class_id,
+            "class_name": class_row.name if class_row else None,
             "priority": rule.priority,
         },
         "matched": matched,

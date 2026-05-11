@@ -78,6 +78,17 @@ class BankTransaction(Base):
         nullable=True, index=True,
     )
 
+    # Phase 3: per-business class attribution. NULL = no business
+    # attribution (implicit personal/household). Set by bank_rules.apply
+    # when a matching rule has class_id, or directly via the categorize
+    # UI's class dropdown. ON DELETE SET NULL so deleting a class
+    # doesn't cascade-wipe transaction history.
+    class_id = Column(
+        Integer,
+        ForeignKey("classes.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     bank_account = relationship("BankAccount", back_populates="transactions")
