@@ -61,6 +61,8 @@ const App = {
         '/statement-imports': { page: 'statement-imports', label: 'Statement Imports', cabin: true, render: () => StatementImportsPage.render() },
         // Phase 3 — spending analytics: LLM-assisted categorization loop.
         '/categorize':    { page: 'categorize',      label: 'Categorize',         render: () => CategorizePage.render() },
+        // Phase 3 — spending analytics (monthly trend + category breakdown).
+        '/spending':      { page: 'spending',        label: 'Spending',           render: () => SpendingPage.render() },
     },
 
     async navigate(hash) {
