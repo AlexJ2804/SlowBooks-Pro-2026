@@ -46,6 +46,8 @@ from app.routes import qbo
 from app.routes import journal, deposits, cc_charges, checks
 # Phase 10: Quick Wins + Medium Effort Features
 from app.routes import bank_rules, budgets, attachments, email_templates
+# Phase 3: Spending analytics
+from app.routes import categorize
 # Phase 11: Multi-currency (invoices)
 from app.routes import fx
 # Phase 12: Classes
@@ -139,6 +141,8 @@ app.include_router(bank_rules.router)
 app.include_router(budgets.router)
 app.include_router(attachments.router)
 app.include_router(email_templates.router)
+# Phase 3: Spending analytics
+app.include_router(categorize.router)
 # Phase 11: Multi-currency (invoices)
 app.include_router(fx.router)
 # Phase 12: Classes
