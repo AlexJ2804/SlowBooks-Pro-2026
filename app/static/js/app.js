@@ -48,12 +48,26 @@ const App = {
         // Phase 10: Quick Wins + Medium Effort Features
         '/budgets':       { page: 'budgets',         label: 'Budget vs Actual',   render: () => BudgetsPage.render() },
         '/bank-rules':    { page: 'bank-rules',      label: 'Bank Rules',         render: () => BankRulesPage.render() },
+        // Net worth phase 1
+        '/balances':      { page: 'balances',        label: 'Balance Entry',      render: () => BalancesPage.render() },
+        '/net-worth':     { page: 'net-worth',       label: 'Net Worth',          render: () => NetWorthPage.render() },
+        // Phase 1.5 task 2 — airline miles (cabin: true → page provides
+        // its own gutter via .sb-head + .sb-grid; router skips the legacy wrapper)
+        '/miles':         { page: 'miles',           label: 'Airline Miles',      cabin: true, render: () => AirlineMilesPage.render() },
+        // Phase 1.5 task 3 — credit scores (cabin: true → page provides
+        // its own gutter via .sb-head + .sb-section; router skips the legacy wrapper)
+        '/credit-scores': { page: 'credit-scores',   label: 'Credit Scores',      cabin: true, render: () => CreditScoresPage.render() },
+        // Phase 2 — PDF statement ingestion (issue #1).
+        '/statement-imports': { page: 'statement-imports', label: 'Statement Imports', cabin: true, render: () => StatementImportsPage.render() },
     },
 
     async navigate(hash) {
         const path = hash.replace('#', '') || '/';
         const route = App.routes[path];
-        if (!route) { $('#page-content').innerHTML = '<p>Page not found</p>'; return; }
+        if (!route) {
+            $('#page-content').innerHTML = '<div class="sb-page-pad"><p>Page not found</p></div>';
+            return;
+        }
 
         // Update active nav
         $$('.nav-link').forEach(link => {
@@ -63,17 +77,37 @@ const App = {
         // Status bar
         App.setStatus(`Loading ${route.label}...`);
 
+        // Cabin pages (e.g. /#/miles) build their own page chrome with
+        // .sb-head + .sb-grid + .sb-section primitives, each of which
+        // carries the standard --pad-page-x / --pad-page-top gutter.
+        // Legacy pages render flush against #page-content and would
+        // otherwise hug the sidebar — the router wraps their output in
+        // .sb-page-pad so they pick up the same gutter without each
+        // page module needing to know about it. Pages opt out by
+        // setting `cabin: true` on the route entry; the rest of the
+        // app migrates to cabin layout primitives one page at a time.
+        const wrap = (html) =>
+            route.cabin ? html : `<div class="sb-page-pad">${html}</div>`;
+
         try {
             const html = await route.render();
-            $('#page-content').innerHTML = html;
+            $('#page-content').innerHTML = wrap(html);
             App.setStatus(`${route.label} — Ready`);
         } catch (err) {
+            // Server-side detail (err.message and stack) goes to console
+            // for devs; the DOM gets a clean user-facing error with a
+            // recovery action. Avoid leaking framework / decompilation
+            // internals into the rendered page (S1 audit finding).
             console.error(err);
-            $('#page-content').innerHTML = `<div class="empty-state">
-                <p><strong>Error 0x8004:</strong> ${escapeHtml(err.message)}</p>
-                <p style="font-size:10px; color:var(--text-muted);">CQBView::OnActivate() failed at offset 0x00042A10</p>
-            </div>`;
-            App.setStatus('Error — see console for details');
+            $('#page-content').innerHTML = wrap(`
+                <div class="empty-state">
+                    <h3>Couldn't load this page</h3>
+                    <p>${escapeHtml(err.message || 'An unexpected error occurred.')}</p>
+                    <p style="margin-top:12px;">
+                        <a href="#/" class="btn btn-secondary">Return to Dashboard</a>
+                    </p>
+                </div>`);
+            App.setStatus('Error loading page');
         }
     },
 
@@ -115,6 +149,292 @@ const App = {
     },
 
     async renderDashboard() {
+        // Phase 1.5 task 5: the home page is now a household-finance
+        // dashboard with the legacy QuickBooks "Company Snapshot"
+        // content stacked underneath. Each new section degrades to an
+        // empty-state if its endpoint is missing or fails so the rest
+        // of the dashboard still paints.
+        const [netWorth, miles, scores, balances, companyHtml] = await Promise.all([
+            API.get('/net-worth').catch(() => null),
+            API.get('/airline-miles').catch(() => null),
+            API.get('/credit-scores').catch(() => null),
+            API.get('/balances?limit=5').catch(() => null),
+            App._renderCompanySnapshot().catch(err => {
+                console.error('Bookkeeping snapshot failed:', err);
+                return `<div class="empty-state"><p>Bookkeeping snapshot unavailable.</p></div>`;
+            }),
+        ]);
+
+        return `
+            <div class="page-header">
+                <h2>Household Dashboard</h2>
+                <div style="font-size:10px; color:var(--text-muted);">
+                    Slowbooks Pro 2026 &mdash; Build 12.0.3190-R
+                </div>
+            </div>
+            ${App._renderNetWorthHeadline(netWorth)}
+            ${App._renderMilesSummary(miles)}
+            ${App._renderCreditScoreSummary(scores)}
+            ${App._renderRecentActivity(balances)}
+            ${App._renderScraperPanel()}
+            <div class="dash-divider" role="separator"></div>
+            ${companyHtml}
+        `;
+    },
+
+    // ----------------------------------------------------------------
+    // Phase 1.5 task 5 — household sections on the dashboard
+    // ----------------------------------------------------------------
+    _renderNetWorthHeadline(nw) {
+        if (!nw) {
+            return `<div class="dashboard-section">
+                <h3>Net Worth</h3>
+                <div class="empty-state"><p>Net worth data unavailable.</p></div>
+            </div>`;
+        }
+        const home = nw.home_currency || 'USD';
+        const householdNet = nw.totals && nw.totals.household
+            ? Number(nw.totals.household.net || 0)
+            : 0;
+
+        // Most recent as-of across all account snapshots — gives the
+        // user a "current as of <date>" line on the headline so they
+        // know how stale the figure is.
+        let mostRecent = null;
+        for (const a of (nw.accounts || [])) {
+            if (a.latest_balance_as_of) {
+                if (mostRecent === null || a.latest_balance_as_of > mostRecent) {
+                    mostRecent = a.latest_balance_as_of;
+                }
+            }
+        }
+
+        const slices = (nw.slices_by_person || []).map(s => {
+            const net = Number(s.net || 0);
+            const pct = householdNet !== 0 ? (net / householdNet * 100) : 0;
+            return `<div class="nw-slice">
+                <div class="nw-slice-name">${escapeHtml(s.name)}</div>
+                <div class="nw-slice-amount">${formatCurrency(net, home)}</div>
+                <div class="nw-slice-pct">${pct.toFixed(1)}% of household</div>
+            </div>`;
+        }).join('');
+
+        return `
+            <div class="dashboard-section">
+                <div class="nw-headline">
+                    <div class="nw-headline-label">Household net worth</div>
+                    <div class="nw-headline-value">${formatCurrency(householdNet, home)}</div>
+                    <div class="nw-headline-as-of">
+                        ${mostRecent ? `as of ${formatDate(mostRecent)}` : 'No balance snapshots yet'}
+                        &middot; <a href="#/net-worth">View full breakdown</a>
+                    </div>
+                </div>
+                ${slices ? `<div class="nw-slice-row">${slices}</div>` : ''}
+            </div>
+        `;
+    },
+
+    _renderMilesSummary(miles) {
+        if (!miles) {
+            return `<div class="dashboard-section">
+                <h3>Airline Miles</h3>
+                <div class="empty-state"><p>Miles data unavailable.</p></div>
+            </div>`;
+        }
+
+        // Roll up miles by person across all programs. Person rows with
+        // zero miles are dropped from the summary — empty placeholders
+        // belong on /#/miles, not the dashboard.
+        const byPerson = new Map();
+        for (const prog of miles) {
+            for (const m of (prog.memberships || [])) {
+                if (!m.latest_balance) continue;
+                const cur = byPerson.get(m.person_id) || {
+                    name: m.person_name,
+                    display_order: m.person_display_order,
+                    total: 0,
+                    programs: 0,
+                };
+                cur.total += m.latest_balance;
+                cur.programs += 1;
+                byPerson.set(m.person_id, cur);
+            }
+        }
+        const rows = [...byPerson.values()].sort(
+            (a, b) => a.display_order - b.display_order
+        );
+
+        const body = rows.length === 0
+            ? `<div class="empty-state"><p>No miles entered yet. <a href="#/miles">Add some</a>.</p></div>`
+            : `<ul class="dash-list">${rows.map(r => `
+                    <li>
+                        <strong>${escapeHtml(r.name)}:</strong>
+                        ${r.total.toLocaleString('en-US')} miles
+                        <span class="muted">across ${r.programs} programme${r.programs === 1 ? '' : 's'}</span>
+                    </li>
+                `).join('')}</ul>`;
+
+        return `
+            <div class="dashboard-section">
+                <h3>Airline Miles <a href="#/miles" class="dash-section-link">View all</a></h3>
+                ${body}
+            </div>
+        `;
+    },
+
+    _renderCreditScoreSummary(scores) {
+        if (!scores) {
+            return `<div class="dashboard-section">
+                <h3>Credit Scores</h3>
+                <div class="empty-state"><p>Credit score data unavailable.</p></div>
+            </div>`;
+        }
+        const bureaus = ['Equifax', 'Experian', 'TransUnion'];
+
+        // Build the latest-per-(person,bureau) lookup directly here so
+        // the dashboard doesn't depend on the credit_scores.js module
+        // having loaded. Same FICO 8 preference rule though.
+        const sorted = [...scores].sort((a, b) => {
+            const d = b.as_of_date.localeCompare(a.as_of_date);
+            if (d !== 0) return d;
+            return (a.score_model === 'FICO 8' ? 0 : 1)
+                 - (b.score_model === 'FICO 8' ? 0 : 1);
+        });
+        const latest = new Map();  // person_id|bureau -> row
+        for (const s of sorted) {
+            const k = `${s.person_id}|${s.bureau}`;
+            if (!latest.has(k)) latest.set(k, s);
+        }
+        // Distinct people who have any score recorded.
+        const peopleSeen = new Map();
+        for (const s of scores) {
+            if (!peopleSeen.has(s.person_id)) {
+                peopleSeen.set(s.person_id, s.person_name);
+            }
+        }
+        const personRows = [...peopleSeen.entries()];
+
+        const headerCells = bureaus.map(b => `<th>${b}</th>`).join('');
+        const bodyRows = personRows.length === 0
+            ? `<tr><td colspan="${bureaus.length + 1}" style="text-align:center; color:var(--text-muted);">
+                    No scores entered yet. <a href="#/credit-scores">Add some</a>.
+               </td></tr>`
+            : personRows.map(([pid, name]) => {
+                const cells = bureaus.map(b => {
+                    const r = latest.get(`${pid}|${b}`);
+                    return r
+                        ? `<td class="amount">${r.score}</td>`
+                        : `<td class="amount muted">—</td>`;
+                }).join('');
+                return `<tr><th class="dash-cs-person">${escapeHtml(name)}</th>${cells}</tr>`;
+            }).join('');
+
+        return `
+            <div class="dashboard-section">
+                <h3>Credit Scores <a href="#/credit-scores" class="dash-section-link">View all</a></h3>
+                <table class="dash-cs-grid">
+                    <thead><tr><th></th>${headerCells}</tr></thead>
+                    <tbody>${bodyRows}</tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    _renderScraperPanel() {
+        // Manual trigger for the Gmail-receipts → IIF → import pipeline.
+        // The scheduled cron in services/scheduled_import.py runs this
+        // every Monday 6am America/Chicago; the button here lets the user
+        // pull right now. Result text and color are written back into
+        // #dash-scraper-result by App.runScraperFromDashboard().
+        return `
+            <div class="dashboard-section">
+                <h3>Receipts &mdash; Gmail Scraper
+                    <a href="#/iif" class="dash-section-link">Open IIF page</a></h3>
+                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:4px 0;">
+                    <button id="dash-scraper-btn" class="btn btn-primary"
+                            onclick="App.runScraperFromDashboard()">
+                        Pull receipts now
+                    </button>
+                    <div id="dash-scraper-result" style="font-size:11px; color:var(--text-muted, var(--ink-3));">
+                        Runs the same pipeline as the weekly Monday 6am cron &mdash; just right now.
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    async runScraperFromDashboard() {
+        const btn = document.getElementById('dash-scraper-btn');
+        const out = document.getElementById('dash-scraper-result');
+        if (!btn || !out) return;
+
+        btn.disabled = true;
+        const originalLabel = btn.textContent;
+        btn.textContent = 'Scanning Gmail…';
+        out.style.color = 'var(--text-muted, var(--ink-3))';
+        out.textContent = 'Calling Apps Script — this can take up to a few minutes.';
+
+        try {
+            const r = await API.post('/scheduled-import/run-now', {});
+            const counts = `${r.bills} bill${r.bills === 1 ? '' : 's'} · ${r.deposits} deposit${r.deposits === 1 ? '' : 's'} · ${r.duplicates_skipped} duplicate${r.duplicates_skipped === 1 ? '' : 's'} skipped`;
+            const errCount = (r.errors || []).length;
+            const elapsed = r.elapsed_seconds != null ? ` · ${r.elapsed_seconds}s` : '';
+
+            if (r.iif_bytes === 0) {
+                out.style.color = 'var(--text-muted, var(--ink-3))';
+                out.textContent = `No new transactions${elapsed}.`;
+            } else if (errCount > 0) {
+                out.style.color = 'var(--qb-orange, var(--warning, #b45309))';
+                out.textContent = `${counts} · ${errCount} import error${errCount === 1 ? '' : 's'}${elapsed}.`;
+            } else {
+                out.style.color = 'var(--success, var(--positive, #2E7D5B))';
+                out.textContent = `${counts}${elapsed}.`;
+            }
+            toast(r.iif_bytes === 0 ? 'Scraper ran — no new receipts' : `Imported ${r.bills + r.deposits} new entries`);
+        } catch (err) {
+            out.style.color = 'var(--qb-red, var(--negative, #c8102e))';
+            out.textContent = err.message || 'Scraper run failed';
+            toast(err.message || 'Scraper run failed', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalLabel;
+        }
+    },
+
+    _renderRecentActivity(balances) {
+        if (!balances) {
+            return `<div class="dashboard-section">
+                <h3>Recent activity</h3>
+                <div class="empty-state"><p>Activity feed unavailable.</p></div>
+            </div>`;
+        }
+        if (balances.length === 0) {
+            return `<div class="dashboard-section">
+                <h3>Recent activity</h3>
+                <div class="empty-state"><p>No balance snapshots yet.</p></div>
+            </div>`;
+        }
+        const rows = balances.map(b => `
+            <li>
+                <span class="dash-act-date">${formatDate(b.as_of_date)}</span>
+                &mdash; ${escapeHtml(b.account_name || '')}
+                &mdash; <strong>${formatCurrency(b.balance, b.currency)}</strong>
+            </li>
+        `).join('');
+        return `
+            <div class="dashboard-section">
+                <h3>Recent activity <a href="#/balances" class="dash-section-link">Add snapshot</a></h3>
+                <ul class="dash-list">${rows}</ul>
+            </div>
+        `;
+    },
+
+    async _renderCompanySnapshot() {
+        // Phase 1.5 task 5 hoist: this is the legacy QB-style "Company
+        // Snapshot" content (AR / AP / Bank Balances / Recent Invoices),
+        // now rendered as the bottom section of /#/dashboard underneath
+        // the new household-finance sections. Renamed to "Bookkeeping"
+        // so the personal/business split on the page is self-evident.
         const data = await API.get('/dashboard');
 
         let recentInv = data.recent_invoices.map(inv =>
@@ -203,7 +523,7 @@ const App = {
 
         return `
             <div class="page-header">
-                <h2>Company Snapshot</h2>
+                <h2>Bookkeeping</h2>
                 <div style="font-size:10px; color:var(--text-muted);">
                     Slowbooks Pro 2026 &mdash; Build 12.0.3190-R
                 </div>
@@ -253,6 +573,61 @@ const App = {
             </div>`;
     },
 
+    // Net worth phase 1: kind chip color map. Picked for visual
+    // distinguishability rather than semantic meaning.
+    _kindChipColors: {
+        bank:        '#1f5fa8',  // blue
+        credit_card: '#c2410c',  // orange
+        brokerage:   '#16793b',  // green
+        retirement:  '#7c3aed',  // purple
+        property:    '#0f766e',  // teal
+        loan:        '#b91c1c',  // red
+    },
+
+    _kindChip(kind) {
+        if (!kind) return '';
+        const color = App._kindChipColors[kind] || '#555';
+        const label = kind.replace('_', ' ');
+        return `<span style="display:inline-block; padding:1px 6px; font-size:10px; font-weight:600; color:#fff; background:${color}; border-radius:8px; text-transform:capitalize; white-space:nowrap;">${label}</span>`;
+    },
+
+    _ownershipDisplay(a) {
+        // Phase 1.5: prefer the join-table rows on the response, but fall
+        // back to the legacy alex/alexa/kids columns for older callers
+        // (e.g. pre-1.5 cached responses). The compact "X/Y/Z" format
+        // maps person_id 1/2/3 to the legacy slots; rows referencing
+        // any other person_id are surfaced as "+N other".
+        const rows = Array.isArray(a.ownerships) ? a.ownerships : null;
+        let alex = 0, alexa = 0, kids = 0, other = 0;
+        if (rows && rows.length > 0) {
+            for (const r of rows) {
+                if (r.person_id === 1) alex = r.share_pct;
+                else if (r.person_id === 2) alexa = r.share_pct;
+                else if (r.person_id === 3) kids = r.share_pct;
+                else other += r.share_pct;
+            }
+        } else {
+            alex = a.alex_pct || 0;
+            alexa = a.alexa_pct || 0;
+            kids = a.kids_pct || 0;
+        }
+        if (alex === 0 && alexa === 0 && kids === 0 && other === 0) {
+            return '<span style="color:var(--text-muted);">—</span>';
+        }
+        const tail = other > 0 ? ` <span style="color:var(--text-muted);">+${other} other</span>` : '';
+        return `<span style="font-family:var(--font-mono); font-size:11px;">${alex}/${alexa}/${kids}${tail}</span>`;
+    },
+
+    _latestBalanceCell(a) {
+        if (a.latest_balance === null || a.latest_balance === undefined) {
+            return '<span style="color:var(--text-muted);">—</span>';
+        }
+        const ccy = (a.latest_balance_currency || a.currency || 'USD').toUpperCase();
+        const asOf = a.latest_balance_as_of ? formatDate(a.latest_balance_as_of) : '';
+        return `<div>${formatCurrency(a.latest_balance, ccy)}</div>`
+            + `<div style="font-size:10px; color:var(--text-muted);">${asOf}</div>`;
+    },
+
     async renderAccounts() {
         const accounts = await API.get('/accounts');
         const grouped = {};
@@ -265,25 +640,39 @@ const App = {
         const typeNames = { asset: 'Assets', liability: 'Liabilities', equity: 'Equity',
             income: 'Income', cogs: 'Cost of Goods Sold', expense: 'Expenses' };
 
+        // Headers gain Kind / Currency / Ownership / Latest balance.
+        // Header colspan in section dividers updated to 9 to match new column count.
         let html = `
             <div class="page-header">
                 <h2>Chart of Accounts</h2>
                 <button class="btn btn-primary" onclick="App.showAccountForm()">New Account</button>
             </div>
             <div class="table-container"><table>
-                <thead><tr><th style="width:80px;">Number</th><th>Name</th><th style="width:100px;">Type</th><th class="amount" style="width:100px;">Balance</th><th style="width:60px;">Actions</th></tr></thead>
+                <thead><tr>
+                    <th style="width:70px;">Number</th>
+                    <th>Name</th>
+                    <th style="width:90px;">Kind</th>
+                    <th style="width:60px;">Currency</th>
+                    <th style="width:80px;">Ownership</th>
+                    <th class="amount" style="width:90px;">Balance</th>
+                    <th style="width:130px;">Latest Snapshot</th>
+                    <th style="width:60px;">Actions</th>
+                </tr></thead>
                 <tbody>`;
 
         for (const type of typeOrder) {
             const accts = grouped[type] || [];
             if (accts.length === 0) continue;
-            html += `<tr style="background:linear-gradient(180deg, #e8ecf2 0%, #dde2ea 100%);"><td colspan="5" style="font-weight:700; color:var(--qb-navy); font-size:11px; padding:4px 10px;">${typeNames[type]}</td></tr>`;
+            html += `<tr style="background:linear-gradient(180deg, #e8ecf2 0%, #dde2ea 100%);"><td colspan="8" style="font-weight:700; color:var(--qb-navy); font-size:11px; padding:4px 10px;">${typeNames[type]}</td></tr>`;
             for (const a of accts) {
                 html += `<tr>
                     <td style="font-family:var(--font-mono);">${escapeHtml(a.account_number || '')}</td>
-                    <td>${a.is_system ? '' : ''}<strong>${escapeHtml(a.name)}</strong></td>
-                    <td>${a.account_type}</td>
+                    <td><strong>${escapeHtml(a.name)}</strong></td>
+                    <td>${App._kindChip(a.account_kind)}</td>
+                    <td style="font-family:var(--font-mono); font-size:11px;">${escapeHtml((a.currency || 'USD').toUpperCase())}</td>
+                    <td>${App._ownershipDisplay(a)}</td>
                     <td class="amount">${formatCurrency(a.balance)}</td>
+                    <td>${App._latestBalanceCell(a)}</td>
                     <td class="actions">
                         ${!a.is_system ? `<button class="btn btn-sm btn-secondary" onclick="App.showAccountForm(${a.id})">Edit</button>` : ''}
                     </td>
@@ -295,12 +684,97 @@ const App = {
     },
 
     async showAccountForm(id = null) {
-        let acct = { name: '', account_number: '', account_type: 'expense', description: '' };
-        if (id) acct = await API.get(`/accounts/${id}`);
+        let acct = {
+            name: '', account_number: '', account_type: 'expense', description: '',
+            account_kind: '', update_strategy: '', currency: 'USD',
+            alex_pct: 0, alexa_pct: 0, kids_pct: 0, ownerships: [],
+        };
+        let loan = null;
+        if (id) {
+            acct = await API.get(`/accounts/${id}`);
+            if (acct.account_kind === 'loan') {
+                // 404 here is fine — the account is loan-kind but no loans
+                // row was set up. Surface a "missing loan row" hint rather
+                // than failing the modal entirely.
+                try { loan = await API.get(`/loans/by-account/${id}`); }
+                catch (e) { loan = { _missing: true }; }
+            }
+        }
 
         const types = ['asset','liability','equity','income','cogs','expense'];
+        const kinds = ['', 'bank', 'credit_card', 'brokerage', 'retirement', 'property', 'loan'];
+        const strategies = ['', 'transactional', 'balance_only'];
+
+        // Phase 1.5: ownership editor reads from the people directory
+        // and renders one row per AccountOwnership. Rows are kept in
+        // App._ownershipState so the dynamic add/remove buttons can
+        // mutate the list without losing the unsaved values in the
+        // pct inputs.
+        const peopleList = await App._loadPeople();
+        App._ownershipPeople = peopleList;
+        let initialRows = [];
+        if (Array.isArray(acct.ownerships) && acct.ownerships.length > 0) {
+            initialRows = acct.ownerships.map(o => ({
+                person_id: o.person_id, share_pct: o.share_pct,
+            }));
+        } else if (id) {
+            // Defensive fallback for an existing account whose response
+            // somehow lacks the new field. Shouldn't happen post-1.5
+            // but means the editor still loads with sensible defaults
+            // if a stale cache hands us legacy-only data.
+            if ((acct.alex_pct || 0) > 0)  initialRows.push({ person_id: 1, share_pct: acct.alex_pct });
+            if ((acct.alexa_pct || 0) > 0) initialRows.push({ person_id: 2, share_pct: acct.alexa_pct });
+            if ((acct.kids_pct || 0) > 0)  initialRows.push({ person_id: 3, share_pct: acct.kids_pct });
+        }
+        App._ownershipState = initialRows;
+
+        const ownershipSection = `
+            <div class="form-group full-width" style="border-top:1px solid var(--border); padding-top:8px; margin-top:4px;">
+                <label style="font-weight:700;">Household Ownership
+                    <span style="font-weight:400; font-size:10px; color:var(--text-muted);">
+                        — shares must sum to 100, or leave empty for system / unowned accounts
+                    </span>
+                </label>
+                <div id="ownership-editor-wrap" style="margin-top:6px;"></div>
+            </div>
+        `;
+
+        const loanSection = (acct.account_kind === 'loan' && loan && !loan._missing) ? `
+            <div class="form-group full-width" style="border-top:1px solid var(--border); padding-top:8px; margin-top:4px;">
+                <label style="font-weight:700;">Loan Parameters
+                    <span style="font-weight:400; font-size:10px; color:var(--text-muted);">
+                        — schedule has ${loan.schedule_row_count} row${loan.schedule_row_count === 1 ? '' : 's'}
+                    </span>
+                </label>
+                <div class="form-grid" style="margin-top:6px;">
+                    <div class="form-group"><label>Original Amount</label>
+                        <input name="loan_original_amount" type="number" step="0.01" value="${loan.original_amount}"></div>
+                    <div class="form-group"><label>Interest Rate (% APR)</label>
+                        <input name="loan_interest_rate" type="number" step="0.0001" value="${loan.interest_rate}"></div>
+                    <div class="form-group"><label>Term (months)</label>
+                        <input name="loan_term_months" type="number" value="${loan.term_months}"></div>
+                    <div class="form-group"><label>Start Date</label>
+                        <input name="loan_start_date" type="date" value="${loan.start_date}"></div>
+                    <div class="form-group"><label>Monthly Payment</label>
+                        <input name="loan_monthly_payment" type="number" step="0.01" value="${loan.monthly_payment}"></div>
+                    <div class="form-group"><label>Escrow per Payment</label>
+                        <input name="loan_escrow_amount" type="number" step="0.01" value="${loan.escrow_amount}"></div>
+                </div>
+                <button type="button" class="btn btn-sm btn-secondary" style="margin-top:6px;"
+                        onclick="App.generateLoanSchedule(${loan.id})">
+                    Generate schedule
+                </button>
+                <span id="loan-schedule-result" style="font-size:11px; margin-left:8px;"></span>
+            </div>
+        ` : (acct.account_kind === 'loan' ? `
+            <div class="form-group full-width" style="color:var(--qb-red); font-size:11px;">
+                Loan-kind account has no loans row. Re-run scripts/seed_personal_accounts.py
+                or insert one manually.
+            </div>
+        ` : '');
+
         openModal(id ? 'Edit Account' : 'New Account', `
-            <form onsubmit="App.saveAccount(event, ${id})">
+            <form id="account-form" onsubmit="App.saveAccount(event, ${id})">
                 <div class="form-grid">
                     <div class="form-group"><label>Account Number</label>
                         <input name="account_number" value="${escapeHtml(acct.account_number || '')}"></div>
@@ -310,22 +784,220 @@ const App = {
                         <select name="account_type">
                             ${types.map(t => `<option value="${t}" ${acct.account_type===t?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('')}
                         </select></div>
+                    <div class="form-group"><label>Kind</label>
+                        <select name="account_kind">
+                            ${kinds.map(k => `<option value="${k}" ${(acct.account_kind || '')===k?'selected':''}>${k || '— none —'}</option>`).join('')}
+                        </select></div>
+                    <div class="form-group"><label>Update Strategy</label>
+                        <select name="update_strategy">
+                            ${strategies.map(s => `<option value="${s}" ${(acct.update_strategy || '')===s?'selected':''}>${s || '— none —'}</option>`).join('')}
+                        </select></div>
+                    <div class="form-group"><label>Currency</label>
+                        <input name="currency" maxlength="3" style="text-transform:uppercase;" value="${escapeHtml((acct.currency || 'USD').toUpperCase())}"></div>
                     <div class="form-group full-width"><label>Description</label>
                         <textarea name="description">${escapeHtml(acct.description || '')}</textarea></div>
                 </div>
+                ${ownershipSection}
+                ${loanSection}
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">${id ? 'Update' : 'Create'} Account</button>
+                    <button type="submit" class="btn btn-primary" id="account-save-btn">${id ? 'Update' : 'Create'} Account</button>
                 </div>
             </form>`);
+        // Initial render: paint the dynamic ownership editor from
+        // _ownershipState we populated above. _reRenderOwnership also
+        // updates the total widget + save button enable/disable.
+        App._reRenderOwnership();
+    },
+
+    // ---- Phase 1.5 ownership editor state + helpers ----------------------
+    // _peopleCache populates on first showAccountForm call and persists
+    // for the page lifetime. _ownershipPeople / _ownershipState are
+    // scoped to a single open modal — re-initialised each time.
+    _peopleCache: null,
+    _ownershipPeople: [],
+    _ownershipState: [],
+
+    async _loadPeople() {
+        if (App._peopleCache) return App._peopleCache;
+        App._peopleCache = await API.get('/people');
+        return App._peopleCache;
+    },
+
+    _renderOwnershipEditor(rows, peopleList) {
+        const usedIds = new Set(rows.map(r => r.person_id));
+        let body;
+        if (rows.length === 0) {
+            body = `<div style="font-size:11px; color:var(--text-muted); padding:4px 0;">
+                No owners — system / not personally owned.
+            </div>`;
+        } else {
+            body = rows.map((row, idx) => {
+                const opts = peopleList.map(p => {
+                    const disabled = (p.id !== row.person_id && usedIds.has(p.id));
+                    const sel = row.person_id === p.id ? 'selected' : '';
+                    const dis = disabled ? 'disabled' : '';
+                    return `<option value="${p.id}" ${sel} ${dis}>${escapeHtml(p.name)}</option>`;
+                }).join('');
+                return `<div class="ownership-row" style="display:flex; gap:6px; align-items:center; margin-bottom:4px;">
+                    <select onchange="App._ownershipPersonChanged(${idx}, this.value)" style="flex:0 0 140px;">${opts}</select>
+                    <input type="number" min="1" max="100" value="${row.share_pct}"
+                           oninput="App._ownershipPctChanged(${idx}, this.value)"
+                           style="width:70px;">
+                    <span style="font-size:11px; color:var(--text-muted);">%</span>
+                    <button type="button" class="btn btn-sm btn-secondary"
+                            onclick="App._removeOwnershipRow(${idx})"
+                            title="Remove" style="padding:2px 8px;">×</button>
+                </div>`;
+            }).join('');
+        }
+        const total = rows.reduce((s, r) => s + (parseInt(r.share_pct, 10) || 0), 0);
+        const valid = (rows.length === 0) || (total === 100);
+        const totalLabel = rows.length === 0 ? '' : `Total: ${total}${valid ? ' ✓' : ' (must be 100)'}`;
+        const totalColor = valid ? 'var(--text-muted)' : 'var(--qb-red, #c00)';
+        const canAdd = peopleList.length > usedIds.size;
+        return `${body}
+            <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+                <button type="button" class="btn btn-sm btn-secondary"
+                        onclick="App._addOwnershipRow()" ${canAdd ? '' : 'disabled'}>+ Add owner</button>
+                <span id="ownership-total-display" style="font-size:11px; font-family:var(--font-mono); color:${totalColor};">${totalLabel}</span>
+            </div>`;
+    },
+
+    _ownershipPersonChanged(idx, newValue) {
+        const pid = parseInt(newValue, 10);
+        if (App._ownershipState[idx]) {
+            App._ownershipState[idx].person_id = pid;
+            App._reRenderOwnership();
+        }
+    },
+
+    _ownershipPctChanged(idx, newValue) {
+        if (App._ownershipState[idx]) {
+            App._ownershipState[idx].share_pct = parseInt(newValue, 10) || 0;
+            App._updateOwnershipTotal();
+        }
+    },
+
+    _addOwnershipRow() {
+        const usedIds = new Set(App._ownershipState.map(r => r.person_id));
+        const next = App._ownershipPeople.find(p => !usedIds.has(p.id));
+        if (!next) return;  // all people already used
+        App._ownershipState.push({ person_id: next.id, share_pct: 0 });
+        App._reRenderOwnership();
+    },
+
+    _removeOwnershipRow(idx) {
+        App._ownershipState.splice(idx, 1);
+        App._reRenderOwnership();
+    },
+
+    _reRenderOwnership() {
+        const wrap = document.getElementById('ownership-editor-wrap');
+        if (wrap) {
+            wrap.innerHTML = App._renderOwnershipEditor(App._ownershipState, App._ownershipPeople);
+        }
+        App._updateOwnershipTotal();
+    },
+
+    _updateOwnershipTotal() {
+        const total = App._ownershipState.reduce(
+            (s, r) => s + (parseInt(r.share_pct, 10) || 0), 0);
+        const display = document.getElementById('ownership-total-display');
+        const saveBtn = document.getElementById('account-save-btn');
+        const empty = App._ownershipState.length === 0;
+        const valid = empty || (total === 100);
+        if (display) {
+            display.textContent = empty ? '' : `Total: ${total}${valid ? ' ✓' : ' (must be 100)'}`;
+            display.style.color = valid ? 'var(--text-muted)' : 'var(--qb-red, #c00)';
+        }
+        if (saveBtn) {
+            saveBtn.disabled = !valid;
+            // The disabled attribute alone doesn't visually distinguish
+            // the button on this stylesheet — same dark blue as enabled.
+            // Add a half-opacity + not-allowed cursor so the user sees
+            // why their click isn't working.
+            saveBtn.style.opacity = valid ? '' : '0.5';
+            saveBtn.style.cursor = valid ? '' : 'not-allowed';
+        }
+    },
+
+    async generateLoanSchedule(loanId) {
+        const result = document.getElementById('loan-schedule-result');
+        if (result) { result.textContent = 'Generating…'; result.style.color = 'var(--text-muted)'; }
+        try {
+            const r = await API.post(`/loans/${loanId}/generate-schedule`, {});
+            if (result) {
+                result.textContent = `Generated ${r.rows_generated} rows; final balance ${r.final_remaining_balance}`;
+                result.style.color = 'var(--qb-green, #060)';
+            }
+            toast('Schedule generated');
+        } catch (err) {
+            if (result) {
+                result.textContent = err.message || 'Failed to generate';
+                result.style.color = 'var(--qb-red, #c00)';
+            }
+            toast('Schedule generation failed', 'error');
+        }
     },
 
     async saveAccount(e, id) {
         e.preventDefault();
-        const data = Object.fromEntries(new FormData(e.target).entries());
+        const raw = Object.fromEntries(new FormData(e.target).entries());
+
+        // Pull loan_* fields out for a separate PUT call if present;
+        // they aren't valid Account columns.
+        const loanFields = {};
+        for (const k of Object.keys(raw)) {
+            if (k.startsWith('loan_')) {
+                loanFields[k.replace('loan_', '')] = raw[k];
+                delete raw[k];
+            }
+        }
+
+        // Phase 1.5: ownership comes from the dynamic editor's state,
+        // not form inputs. Strip any stale alex_pct/alexa_pct/kids_pct
+        // keys that might be in raw (none should be, since those inputs
+        // were removed) and attach the new `ownerships` array.
+        delete raw.alex_pct;
+        delete raw.alexa_pct;
+        delete raw.kids_pct;
+        raw.ownerships = App._ownershipState.map(r => ({
+            person_id: parseInt(r.person_id, 10),
+            share_pct: parseInt(r.share_pct, 10) || 0,
+        }));
+
+        // Empty-string → null for nullable optional columns. account_number
+        // is UNIQUE in the DB, so leaving it as "" would collide with any
+        // pre-existing row that already has "" (legacy IIF imports left a
+        // few of these around). The form serializes blank inputs as "".
+        for (const k of ['account_kind', 'update_strategy', 'account_number']) {
+            if (raw[k] === '') raw[k] = null;
+        }
+        if (raw.currency) raw.currency = raw.currency.toUpperCase();
+
         try {
-            if (id) { await API.put(`/accounts/${id}`, data); toast('Account updated'); }
-            else { await API.post('/accounts', data); toast('Account created'); }
+            let savedAccount;
+            if (id) {
+                savedAccount = await API.put(`/accounts/${id}`, raw);
+            } else {
+                savedAccount = await API.post('/accounts', raw);
+            }
+
+            // If the form had loan fields, look up the loan id by account
+            // and PUT them. Done sequentially so a loan-PUT failure surfaces
+            // with the account already saved (the ownership change is more
+            // valuable than the loan tweak; partial save is acceptable).
+            if (Object.keys(loanFields).length > 0 && savedAccount.account_kind === 'loan') {
+                try {
+                    const loan = await API.get(`/loans/by-account/${savedAccount.id}`);
+                    await API.put(`/loans/${loan.id}`, loanFields);
+                } catch (loanErr) {
+                    toast('Account saved, but loan update failed: ' + (loanErr.message || ''), 'error');
+                    return;
+                }
+            }
+            toast(id ? 'Account updated' : 'Account created');
             closeModal();
             App.navigate('#/accounts');
         } catch (err) { toast(err.message, 'error'); }

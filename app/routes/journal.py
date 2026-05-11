@@ -15,6 +15,7 @@ from app.models.accounts import Account
 from app.schemas.journal import JournalEntryCreate, JournalEntryResponse
 from app.services.accounting import create_journal_entry
 from app.services.closing_date import check_closing_date
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/journal", tags=["journal"])
 
@@ -79,6 +80,7 @@ def get_journal_entry(entry_id: int, db: Session = Depends(get_db)):
         description=txn.description or "",
         reference=txn.reference or "",
         source_type=txn.source_type or "",
+        class_id=txn.class_id,
         lines=lines_data,
         total_debit=sum(l["debit"] for l in lines_data),
         total_credit=sum(l["credit"] for l in lines_data),
@@ -88,6 +90,7 @@ def get_journal_entry(entry_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=JournalEntryResponse, status_code=201)
 def create_manual_journal_entry(data: JournalEntryCreate, db: Session = Depends(get_db)):
     check_closing_date(db, data.date)
+    class_id = require_class_id(db, data.class_id)
     lines = []
     for line in data.lines:
         if line.debit == 0 and line.credit == 0:
@@ -110,6 +113,7 @@ def create_manual_journal_entry(data: JournalEntryCreate, db: Session = Depends(
             db, data.date, data.description,
             lines, source_type="manual",
             reference=data.reference or "",
+            class_id=class_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -139,6 +143,7 @@ def void_journal_entry(entry_id: int, db: Session = Depends(get_db)):
             db, txn.date, f"VOID: {txn.description or ''}",
             reverse_lines, source_type="manual_void", source_id=txn.id,
             reference=txn.reference,
+            class_id=txn.class_id,
         )
         db.commit()
         db.refresh(void_txn)

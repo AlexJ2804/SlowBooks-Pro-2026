@@ -62,8 +62,13 @@ class Invoice(Base):
     amount_paid = Column(Numeric(12, 2), default=0)
     balance_due = Column(Numeric(12, 2), default=0)
 
+    currency = Column(String(3), default="USD", nullable=False)
+    exchange_rate = Column(Numeric(18, 8), default=1, nullable=False)
+    home_currency_amount = Column(Numeric(12, 2), default=0, nullable=False)
+
     notes = Column(Text, nullable=True)
     transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=True)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False, index=True)
 
     # Stripe online payments
     payment_token = Column(String(36), unique=True, nullable=True, index=True,

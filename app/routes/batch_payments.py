@@ -16,6 +16,7 @@ from app.models.invoices import Invoice, InvoiceStatus
 from app.models.contacts import Customer
 from app.services.accounting import create_journal_entry, get_ar_account_id, get_undeposited_funds_id
 from app.services.closing_date import check_closing_date
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/batch-payments", tags=["batch_payments"])
 
@@ -31,6 +32,7 @@ class BatchPaymentCreate(BaseModel):
     deposit_to_account_id: Optional[int] = None
     method: Optional[str] = None
     reference: Optional[str] = None
+    class_id: Optional[int] = None
     allocations: list[BatchAllocation] = []
 
 
@@ -39,6 +41,7 @@ def create_batch_payment(data: BatchPaymentCreate, db: Session = Depends(get_db)
     from datetime import date as date_type
     txn_date = date_type.fromisoformat(data.date)
     check_closing_date(db, txn_date)
+    class_id = require_class_id(db, data.class_id)
 
     if not data.allocations:
         raise HTTPException(status_code=400, detail="No allocations provided")
@@ -64,6 +67,7 @@ def create_batch_payment(data: BatchPaymentCreate, db: Session = Depends(get_db)
             customer_id=customer_id, date=txn_date, amount=total,
             method=data.method, reference=data.reference,
             deposit_to_account_id=data.deposit_to_account_id,
+            class_id=class_id,
         )
         db.add(payment)
         db.flush()
@@ -97,6 +101,7 @@ def create_batch_payment(data: BatchPaymentCreate, db: Session = Depends(get_db)
             txn = create_journal_entry(
                 db, txn_date, f"Batch payment from {customer.name}",
                 journal_lines, source_type="payment", source_id=payment.id,
+                class_id=class_id,
             )
             payment.transaction_id = txn.id
 

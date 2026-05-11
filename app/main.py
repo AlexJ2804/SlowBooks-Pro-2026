@@ -46,10 +46,37 @@ from app.routes import qbo
 from app.routes import journal, deposits, cc_charges, checks
 # Phase 10: Quick Wins + Medium Effort Features
 from app.routes import bank_rules, budgets, attachments, email_templates
+# Phase 11: Multi-currency (invoices)
+from app.routes import fx
+# Phase 12: Classes
+from app.routes import classes as classes_route
+# Phase 13: Receipt parsing (Anthropic vision)
+from app.routes import receipts
+# Net worth phase 1: loan editing + amortization, balance snapshots,
+# and the dashboard aggregation endpoint.
+from app.routes import loans as loans_route
+from app.routes import balances as balances_route
+from app.routes import net_worth as net_worth_route
+
+# Phase 1.5: people directory for the ownership editor and household
+# slices. Read-only from the API side — household roster changes via
+# psql, not through clicks.
+from app.routes import people as people_route
+# Phase 1.5 task 2: airline miles tracker (programs + memberships + snapshots).
+from app.routes import airline_miles as airline_miles_route
+# Phase 1.5 task 3: credit scores tracker (per-person, per-bureau).
+from app.routes import credit_scores as credit_scores_route
+# Manual trigger for the weekly Gmail-receipts -> IIF -> import pipeline.
+# Same code path as the APScheduler cron in services/scheduled_import.py.
+from app.routes import scheduled_import as scheduled_import_route
+# Phase 2: PDF statement ingestion (issue #1) — upload bank/CC PDFs,
+# vision-parse with Anthropic Sonnet 4.6, post into bank_transactions.
+from app.routes import statement_imports as statement_imports_route
 
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
 from app.services.audit import register_audit_hooks
+from app.services.scheduled_import import start_scheduler
 
 app = FastAPI(title="Slowbooks Pro 2026", version="2.0.0")
 
@@ -112,17 +139,39 @@ app.include_router(bank_rules.router)
 app.include_router(budgets.router)
 app.include_router(attachments.router)
 app.include_router(email_templates.router)
+# Phase 11: Multi-currency (invoices)
+app.include_router(fx.router)
+# Phase 12: Classes
+app.include_router(classes_route.router)
+# Phase 13: Receipt parsing
+app.include_router(receipts.router)
+# Net worth phase 1
+app.include_router(loans_route.router)
+app.include_router(balances_route.router)
+app.include_router(net_worth_route.router)
+# Phase 1.5
+app.include_router(people_route.router)
+app.include_router(airline_miles_route.router)
+app.include_router(credit_scores_route.router)
+app.include_router(scheduled_import_route.router)
+# Phase 2: PDF statement ingestion
+app.include_router(statement_imports_route.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)
+
+# Start weekly IIF import scheduler (gated by WEEKLY_IMPORT_ENABLED env var)
+start_scheduler()
 
 # Static files
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-# Ensure uploads directory exists
+# Ensure uploads directories exist
 uploads_dir = static_dir / "uploads"
 uploads_dir.mkdir(exist_ok=True)
+(uploads_dir / "statements").mkdir(exist_ok=True)
+(uploads_dir / "attachments").mkdir(exist_ok=True)
 
 # SPA entry point
 index_path = Path(__file__).parent.parent / "index.html"

@@ -4,7 +4,7 @@
 # everything into a single key-value store because nobody needs 12 tabs.
 # ============================================================================
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,60 @@ class SettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+# Sensitive keys that get masked-on-GET treatment. The full value never
+# leaves the server via /api/settings; the UI shows "••••••••<last4>" so
+# the user can verify which key is saved without exposing it to anyone
+# with browser DevTools open.
+#
+# What's NOT here, and why:
+# - stripe_publishable_key — by Stripe's own design, "publishable" keys
+#   are intended to be embedded in client-side code; masking would be
+#   theatre.
+# - qbo_client_id — Intuit treats client IDs as semi-public OAuth
+#   identifiers (only the client_secret is secret). Masking it would
+#   make legitimate debugging harder without security benefit.
+# - qbo_realm_id, qbo_token_expires_at, qbo_oauth_state — non-secret
+#   metadata / ephemeral CSRF nonce.
+#
+# Anthropic-key masking landed in phase 12; the rest were added in the
+# May-2026 audit follow-up that closed the "older sensitive keys still
+# returned plaintext" gap noted in the previous version of this comment.
+_MASKED_KEYS = {
+    "anthropic_api_key",
+    "smtp_password",
+    "stripe_secret_key",
+    "stripe_webhook_secret",
+    "qbo_client_secret",
+    "qbo_access_token",
+    "qbo_refresh_token",
+    "closing_date_password",
+}
+_MASK_PREFIX = "•" * 8
+
+
+def _mask_value(value: str) -> str:
+    """Return a display-safe mask of a sensitive value.
+
+    Empty -> empty (so the UI knows the key isn't set yet).
+    Else -> "••••••••<last 4>" so the user can verify they pasted the
+    right key without revealing the full secret.
+    """
+    if not value:
+        return ""
+    last4 = value[-4:] if len(value) >= 4 else value
+    return f"{_MASK_PREFIX}{last4}"
+
+
+def _is_masked_sentinel(value) -> bool:
+    """True if `value` looks like a masked key (came back unchanged from GET).
+
+    Real API keys never contain bullet characters; the only way the
+    bullet-prefixed string reaches PUT is if the frontend echoed back the
+    masked GET value. In that case we must NOT overwrite the stored key.
+    """
+    return isinstance(value, str) and "•" in value
 
 
 def _get_all(db: Session) -> dict:
@@ -40,18 +94,78 @@ def _set(db: Session, key: str, value: str):
 
 @router.get("")
 def get_settings(db: Session = Depends(get_db)):
-    return _get_all(db)
+    payload = _get_all(db)
+    # Mask sensitive keys on the way out. The full value never leaves
+    # the server via this endpoint.
+    for k in _MASKED_KEYS:
+        payload[k] = _mask_value(payload.get(k, ""))
+    return payload
 
 
 @router.put("")
 def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     # model_dump returns extras plus any declared fields. Still whitelisted
     # against DEFAULT_SETTINGS so unknown keys are silently dropped.
-    for key, value in data.model_dump().items():
-        if key in DEFAULT_SETTINGS:
-            _set(db, key, str(value) if value is not None else "")
+    submitted = data.model_dump()
+    for key, value in submitted.items():
+        if key not in DEFAULT_SETTINGS:
+            continue
+        # If a masked key field is submitted with the mask sentinel
+        # (because the user didn't change it), preserve the stored
+        # value instead of overwriting with bullets.
+        if key in _MASKED_KEYS and _is_masked_sentinel(value):
+            continue
+        _set(db, key, str(value) if value is not None else "")
     db.commit()
-    return _get_all(db)
+    return get_settings(db)
+
+
+@router.post("/test-receipt-parser")
+def test_receipt_parser(db: Session = Depends(get_db)):
+    """Send a tiny probe to the configured Anthropic model to confirm the
+    API key + model are valid. Used by the Settings → Receipt Parsing
+    "Test Connection" button. Returns {"ok": bool, "detail": str}.
+
+    The probe is a one-token request with no image, so cost is < 1¢ on
+    Haiku. The frontend rate-limits the click to once per second to
+    prevent spam."""
+    settings = _get_all(db)
+    api_key = settings.get("anthropic_api_key", "")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Anthropic API key is not set")
+
+    import json
+    import urllib.request
+    import urllib.error
+    body = json.dumps({
+        "model": settings.get("receipt_parser_model") or "claude-haiku-4-5-20251001",
+        "max_tokens": 4,
+        "messages": [{"role": "user", "content": "Reply with only the single word 'ok'."}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        method="POST",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status == 200:
+                return {"ok": True, "detail": "Connection OK"}
+            return {"ok": False, "detail": f"HTTP {resp.status} from Anthropic API"}
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {"ok": False, "detail": "API key was rejected (HTTP 401)"}
+        if e.code == 404:
+            return {"ok": False, "detail": "Model not found (HTTP 404) — check the model name"}
+        return {"ok": False, "detail": f"HTTP {e.code} from Anthropic API"}
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        msg = "timed out" if "timed out" in str(e).lower() else "network error"
+        return {"ok": False, "detail": f"Could not reach Anthropic API ({msg})"}
 
 
 @router.post("/test-email")

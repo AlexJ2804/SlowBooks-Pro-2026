@@ -20,6 +20,7 @@ from app.services.accounting import (
     create_journal_entry, get_ar_account_id, get_undeposited_funds_id,
 )
 from app.services.closing_date import check_closing_date
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
@@ -53,6 +54,7 @@ def get_payment(payment_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=PaymentResponse, status_code=201)
 def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
     check_closing_date(db, data.date)
+    class_id = require_class_id(db, data.class_id)
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -61,6 +63,29 @@ def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
     alloc_total = sum(a.amount for a in data.allocations)
     if alloc_total > data.amount:
         raise HTTPException(status_code=400, detail="Allocations exceed payment amount")
+
+    currency = (data.currency or "USD").upper()
+    exchange_rate = data.exchange_rate if isinstance(data.exchange_rate, Decimal) else Decimal(str(data.exchange_rate or 1))
+    home_currency_amount = (Decimal(str(data.amount)) * exchange_rate).quantize(Decimal("0.01"))
+
+    # Cross-currency reconciliation is intentionally not supported in this
+    # phase — reject any allocation against an invoice in a different currency.
+    # Validated before we create the Payment row so a bad request leaves no
+    # partial state behind.
+    for alloc_data in data.allocations:
+        invoice = db.query(Invoice).filter(Invoice.id == alloc_data.invoice_id).first()
+        if not invoice:
+            raise HTTPException(status_code=404, detail=f"Invoice {alloc_data.invoice_id} not found")
+        inv_ccy = (invoice.currency or "USD").upper()
+        if inv_ccy != currency:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Payment currency {currency} does not match invoice "
+                    f"{invoice.invoice_number} currency {inv_ccy}; cross-currency "
+                    f"reconciliation is not supported in this phase."
+                ),
+            )
 
     payment = Payment(
         customer_id=data.customer_id,
@@ -71,15 +96,17 @@ def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
         reference=data.reference,
         deposit_to_account_id=data.deposit_to_account_id,
         notes=data.notes,
+        currency=currency,
+        exchange_rate=exchange_rate,
+        home_currency_amount=home_currency_amount,
+        class_id=class_id,
     )
     db.add(payment)
     db.flush()
 
-    # Apply allocations to invoices
+    # Apply allocations to invoices (currency match already validated above).
     for alloc_data in data.allocations:
         invoice = db.query(Invoice).filter(Invoice.id == alloc_data.invoice_id).first()
-        if not invoice:
-            raise HTTPException(status_code=404, detail=f"Invoice {alloc_data.invoice_id} not found")
         if alloc_data.amount > invoice.balance_due:
             raise HTTPException(
                 status_code=400,
@@ -127,6 +154,8 @@ def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
             db, data.date, f"Payment from {customer.name}",
             journal_lines, source_type="payment", source_id=payment.id,
             reference=data.reference or data.check_number or "",
+            currency=currency, exchange_rate=exchange_rate,
+            class_id=class_id,
         )
         payment.transaction_id = txn.id
 
@@ -165,6 +194,8 @@ def void_payment(payment_id: int, db: Session = Depends(get_db)):
                 db, payment.date,
                 f"VOID Payment from {cname}",
                 reverse_lines, source_type="payment_void", source_id=payment.id,
+                currency=payment.currency, exchange_rate=payment.exchange_rate,
+                class_id=payment.class_id,
             )
 
     # Reverse invoice allocations

@@ -89,44 +89,43 @@ const EstimatesPage = {
     _items: [],
     _customers: [],
 
-    customerSelected(customerId) {
-        if (customerId === '__new__') {
-            const form = $('#est-new-customer-form');
-            if (form) form.style.display = 'block';
-            return;
-        }
-        const ncf = $('#est-new-customer-form');
-        if (ncf) ncf.style.display = 'none';
-    },
-
-    async saveNewCustomer() {
-        const name = $('#est-new-cust-name').value.trim();
-        if (!name) { toast('Customer name is required', 'error'); return; }
-        try {
-            const cust = await API.post('/customers', {
-                name, email: $('#est-new-cust-email').value.trim() || null,
-                phone: $('#est-new-cust-phone').value.trim() || null,
-            });
-            EstimatesPage._customers.push(cust);
+    newCustomer() {
+        InlineCreate.open('customer', async (created) => {
+            const fresh = await API.get('/customers?active_only=true');
+            EstimatesPage._customers = fresh;
             const sel = $('#est-customer-select');
-            const opt = document.createElement('option');
-            opt.value = cust.id; opt.textContent = cust.name; opt.selected = true;
-            sel.appendChild(opt);
-            $('#est-new-customer-form').style.display = 'none';
-            toast(`Customer "${cust.name}" created`);
-        } catch (err) { toast(err.message, 'error'); }
+            if (sel) {
+                const opts = fresh.map(c =>
+                    `<option value="${c.id}"${c.id == created.id ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">Select...</option>${opts}`;
+                sel.value = String(created.id);
+            }
+        });
     },
 
-    cancelNewCustomer() {
-        $('#est-new-customer-form').style.display = 'none';
-        $('#est-customer-select').value = '';
+    newItem() {
+        InlineCreate.open('item', async (created) => {
+            const fresh = await API.get('/items?active_only=true');
+            EstimatesPage._items = fresh;
+            $$('#est-lines tr').forEach(row => {
+                const sel = row.querySelector('.line-item');
+                if (!sel) return;
+                const current = sel.value;
+                const opts = fresh.map(i =>
+                    `<option value="${i.id}"${i.id == current ? ' selected' : ''}>${escapeHtml(i.name)}</option>`
+                ).join('');
+                sel.innerHTML = `<option value="">--</option>${opts}`;
+            });
+        });
     },
 
     async showForm(id = null) {
-        const [customers, items, settings] = await Promise.all([
+        const [customers, items, settings, classes] = await Promise.all([
             API.get('/customers?active_only=true'),
             API.get('/items?active_only=true'),
             API.get('/settings'),
+            API.get('/classes'),
         ]);
 
         let est = {
@@ -135,6 +134,7 @@ const EstimatesPage = {
             expiration_date: '',
             tax_rate: (parseFloat(settings.default_tax_rate || '0') || 0) / 100,
             notes: '',
+            class_id: '',
             lines: [],
         };
         if (id) est = await API.get(`/estimates/${id}`);
@@ -142,6 +142,7 @@ const EstimatesPage = {
 
         EstimatesPage.lineCount = est.lines.length;
         EstimatesPage._items = items;
+        EstimatesPage._classes = classes;
 
         EstimatesPage._customers = customers;
         const custOpts = customers.map(c => `<option value="${c.id}" ${est.customer_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
@@ -149,18 +150,12 @@ const EstimatesPage = {
         openModal(id ? 'Edit Estimate' : 'New Estimate', `
             <form id="est-form" onsubmit="EstimatesPage.save(event, ${id})">
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="est-class-select" aria-required="true">${classOptions(classes, est.class_id)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); EstimatesPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
-                        <select name="customer_id" id="est-customer-select" required onchange="EstimatesPage.customerSelected(this.value)"><option value="">Select...</option><option value="__new__">+ New Customer</option>${custOpts}</select>
-                        <div id="est-new-customer-form" style="display:none; margin-top:8px; padding:8px; border:1px solid var(--gray-300); border-radius:4px; background:var(--primary-light);">
-                            <div style="font-weight:700; font-size:11px; margin-bottom:6px;">Quick Add Customer</div>
-                            <input id="est-new-cust-name" placeholder="Name *" style="width:100%; margin-bottom:4px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;">
-                            <input id="est-new-cust-email" placeholder="Email" style="width:100%; margin-bottom:4px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;">
-                            <input id="est-new-cust-phone" placeholder="Phone" style="width:100%; margin-bottom:4px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;">
-                            <div style="display:flex; gap:6px;">
-                                <button type="button" class="btn btn-sm btn-primary" onclick="EstimatesPage.saveNewCustomer()">Save</button>
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="EstimatesPage.cancelNewCustomer()">Cancel</button>
-                            </div>
-                        </div></div>
+                        <select name="customer_id" id="est-customer-select" required><option value="">Select...</option>${custOpts}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); EstimatesPage.newCustomer()">+ New customer</a></div>
                     <div class="form-group"><label>Date *</label>
                         <input name="date" type="date" required value="${est.date}"></div>
                     <div class="form-group"><label>Expiration Date</label>
@@ -180,6 +175,7 @@ const EstimatesPage = {
                     </tbody>
                 </table>
                 <button type="button" class="btn btn-sm btn-secondary" style="margin-top:8px;" onclick="EstimatesPage.addLine()">+ Add Line</button>
+                <a href="#" style="font-size:11px; margin-left:12px;" onclick="event.preventDefault(); EstimatesPage.newItem()">+ New item</a>
                 <div class="invoice-totals" id="est-totals">
                     <div class="total-row"><span class="label">Subtotal</span><span class="value" id="est-subtotal">$0.00</span></div>
                     <div class="total-row"><span class="label">Tax</span><span class="value" id="est-tax">$0.00</span></div>
@@ -263,12 +259,14 @@ const EstimatesPage = {
             });
         });
 
+        if (!requireClassPicked(form)) return;
         const data = {
             customer_id: parseInt(form.customer_id.value),
             date: form.date.value,
             expiration_date: form.expiration_date.value || null,
             tax_rate: (parseFloat(form.tax_rate.value) || 0) / 100,
             notes: form.notes.value || null,
+            class_id: parseInt(form.class_id.value),
             lines,
         };
 
@@ -278,5 +276,14 @@ const EstimatesPage = {
             closeModal();
             App.navigate(location.hash);
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            EstimatesPage._classes = fresh;
+            const sel = $('#est-class-select');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
     },
 };

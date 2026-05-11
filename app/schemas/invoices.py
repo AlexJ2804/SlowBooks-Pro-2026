@@ -48,6 +48,9 @@ class InvoiceCreate(BaseModel):
     ship_zip: Optional[str] = None
     tax_rate: Decimal = Decimal("0")
     notes: Optional[str] = None
+    currency: str = "USD"
+    exchange_rate: Decimal = Decimal("1")
+    class_id: Optional[int] = None
     lines: list[InvoiceLineCreate] = []
 
 
@@ -60,6 +63,9 @@ class InvoiceUpdate(BaseModel):
     status: Optional[InvoiceStatus] = None
     tax_rate: Optional[Decimal] = None
     notes: Optional[str] = None
+    currency: Optional[str] = None
+    exchange_rate: Optional[Decimal] = None
+    class_id: Optional[int] = None
     lines: Optional[list[InvoiceLineCreate]] = None
 
 
@@ -88,6 +94,10 @@ class InvoiceResponse(BaseModel):
     total: Decimal
     amount_paid: Decimal
     balance_due: Decimal
+    currency: str
+    exchange_rate: Decimal
+    home_currency_amount: Decimal
+    class_id: int
     notes: Optional[str]
     payment_token: Optional[str] = None
     lines: list[InvoiceLineResponse] = []

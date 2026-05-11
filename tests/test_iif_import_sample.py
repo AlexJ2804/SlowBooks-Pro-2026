@@ -27,13 +27,13 @@ def _balance(db_session, account_number):
     return acct.balance if acct else None
 
 
-def test_sample_imports_without_errors(db_session, seed_accounts):
+def test_sample_imports_without_errors(db_session, seed_accounts, seed_classes):
     result = _import(db_session)
     # Surface any errors so a failing assertion pinpoints the problem.
     assert not result.get("errors"), f"import reported errors: {result['errors']}"
 
 
-def test_sample_balances_match_maintainer_verified_values(db_session, seed_accounts):
+def test_sample_balances_match_maintainer_verified_values(db_session, seed_accounts, seed_classes):
     _import(db_session)
 
     # From issue #7 closing comment, verified against the sample file by the maintainer.
@@ -52,7 +52,7 @@ def test_sample_balances_match_maintainer_verified_values(db_session, seed_accou
     assert not mismatches, "\n".join(mismatches)
 
 
-def test_sample_opening_balance_journal_is_balanced(db_session, seed_accounts):
+def test_sample_opening_balance_journal_is_balanced(db_session, seed_accounts, seed_classes):
     _import(db_session)
 
     from app.models.transactions import Transaction, TransactionLine

@@ -15,6 +15,7 @@ from app.models.accounts import Account
 from app.schemas.deposits import DepositCreate, PendingDepositResponse
 from app.services.accounting import create_journal_entry, get_undeposited_funds_id
 from app.services.closing_date import check_closing_date
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/deposits", tags=["deposits"])
 
@@ -73,6 +74,7 @@ def list_pending_deposits(db: Session = Depends(get_db)):
 @router.post("")
 def create_deposit(data: DepositCreate, db: Session = Depends(get_db)):
     check_closing_date(db, data.date)
+    class_id = require_class_id(db, data.class_id)
 
     bank_account = db.query(Account).filter(Account.id == data.deposit_to_account_id).first()
     if not bank_account:
@@ -105,6 +107,7 @@ def create_deposit(data: DepositCreate, db: Session = Depends(get_db)):
         db, data.date, f"Deposit to {bank_account.name}",
         journal_lines, source_type="deposit",
         reference=data.reference or "",
+        class_id=class_id,
     )
 
     db.commit()

@@ -111,6 +111,7 @@ class VendorCreate(BaseModel):
     tax_id: Optional[str] = None
     account_number: Optional[str] = None
     default_expense_account_id: Optional[int] = None
+    default_class_id: Optional[int] = None
     is_1099_vendor: bool = False
     vendor_1099_type: Optional[str] = None
     notes: Optional[str] = None
@@ -133,6 +134,7 @@ class VendorUpdate(BaseModel):
     tax_id: Optional[str] = None
     account_number: Optional[str] = None
     default_expense_account_id: Optional[int] = None
+    default_class_id: Optional[int] = None
     is_1099_vendor: Optional[bool] = None
     vendor_1099_type: Optional[str] = None
     notes: Optional[str] = None
@@ -157,6 +159,7 @@ class VendorResponse(BaseModel):
     tax_id: Optional[str]
     account_number: Optional[str]
     default_expense_account_id: Optional[int] = None
+    default_class_id: Optional[int] = None
     is_1099_vendor: bool = False
     vendor_1099_type: Optional[str] = None
     notes: Optional[str]

@@ -19,6 +19,7 @@ from app.models.contacts import Customer
 from app.schemas.estimates import EstimateCreate, EstimateUpdate, EstimateResponse
 from app.schemas.invoices import InvoiceResponse
 from app.services.pdf_service import generate_estimate_pdf
+from app.routes._helpers import require_class_id
 from app.services.accounting import (
     create_journal_entry, get_ar_account_id,
     get_default_income_account_id, get_sales_tax_account_id,
@@ -76,6 +77,7 @@ def get_estimate(estimate_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=EstimateResponse, status_code=201)
 def create_estimate(data: EstimateCreate, db: Session = Depends(get_db)):
+    class_id = require_class_id(db, data.class_id)
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -93,6 +95,7 @@ def create_estimate(data: EstimateCreate, db: Session = Depends(get_db)):
         tax_amount=tax_amount,
         total=total,
         notes=data.notes,
+        class_id=class_id,
     )
     db.add(estimate)
     db.flush()
@@ -237,6 +240,9 @@ def convert_to_invoice(estimate_id: int, db: Session = Depends(get_db)):
         total=estimate.total,
         balance_due=estimate.total,
         notes=estimate.notes,
+        # Inherit class from estimate per spec ("preserve whatever class
+        # the estimate had"). No UI for picking class on conversion.
+        class_id=estimate.class_id,
     )
     db.add(invoice)
     db.flush()
@@ -304,6 +310,7 @@ def convert_to_invoice(estimate_id: int, db: Session = Depends(get_db)):
             f"Invoice #{invoice_number} - {customer.name if customer else ''}",
             journal_lines, source_type="invoice", source_id=invoice.id,
             reference=invoice_number,
+            class_id=invoice.class_id,
         )
         invoice.transaction_id = txn.id
 

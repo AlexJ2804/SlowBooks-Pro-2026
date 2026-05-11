@@ -77,6 +77,15 @@ class Vendor(Base):
     tax_id = Column(String(50), nullable=True)
     account_number = Column(String(50), nullable=True)
     default_expense_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
+    # Per-vendor class fallback used by the IIF importer when an incoming
+    # block has no CLASS column. Lets vendors that always tag against one
+    # class (TJX/Menards/Home Depot/etc. → "Airbnb income from US Home")
+    # auto-tag without requiring every IIF row to carry CLASS explicitly.
+    default_class_id = Column(
+        Integer,
+        ForeignKey("classes.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     is_1099_vendor = Column(Boolean, default=False)
     vendor_1099_type = Column(String(10), nullable=True)
     notes = Column(Text, nullable=True)

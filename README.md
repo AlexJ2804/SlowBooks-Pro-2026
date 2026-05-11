@@ -77,11 +77,18 @@ The codebase is annotated with "decompilation" comments referencing `QBW32.EXE` 
 - **Schedule C (Tax)** — Generate Schedule C data from P&L with configurable account-to-tax-line mappings. Export as CSV
 
 ### Dashboard
-- Company Snapshot with Total Receivables, Overdue Invoices, Active Customers, Total Payables
+- **Household section (top)** — net-worth headline with per-person slice cards, airline-miles roll-up, latest credit scores grid, and a recent balance-snapshot activity feed. Each section degrades to its own empty-state if its endpoint is unavailable
+- **Bookkeeping section (below)** — the legacy QuickBooks Company Snapshot: Total Receivables, Overdue Invoices, Active Customers, Total Payables
 - **AR Aging Bar Chart** — Color-coded stacked bar (Current/30/60/90+ days)
 - **Monthly Revenue Trend** — Bar chart showing last 12 months of invoiced revenue
 - Recent invoices and payments tables
 - Bank balances at a glance
+
+### Personal Finance (Household)
+- **Net Worth** (`/#/net-worth`) — Per-account balances FX-converted to home currency, sign-adjusted for liabilities, summed into household totals plus per-person slices via the people / `account_ownerships` join table. FX via Bank of Canada Valet with hardcoded USD/EUR fallback so the dashboard degrades gracefully when the upstream is down
+- **Manual Balance Snapshots** (`/#/balances`) — Point-in-time balances for `balance_only` accounts (brokerage, retirement, property, loans). Upsert by `(account_id, as_of_date)` so re-entering for the same date overwrites
+- **Airline Miles** (`/#/miles`) — Per-programme cards for AAdvantage / SkyMiles / MileagePlus / AerClub / Aeroplan with brand colours, logos, per-person split bars, and a points history. Snapshot upsert by `(membership_id, as_of_date)` mirrors the balance pattern
+- **Credit Scores** (`/#/credit-scores`) — Latest-scores grid (rows = parents, cols = bureaus) plus per-parent history line chart (hand-rolled inline SVG) and a full history table. Score range guarded at 300–850 at the DB layer; adult-parents-only enforced at the route layer with a specific 422 message
 
 ![Dashboard — Light Mode](screenshots/dashboard-light.png)
 
@@ -402,6 +409,22 @@ All endpoints under `/api/`. Swagger docs at `/docs`. 160+ routes across 35 rout
 | `/api/reports/income-by-customer` | GET | Sales totals per customer |
 | `/api/tax/schedule-c` | GET | Schedule C data from P&L |
 | `/api/tax/schedule-c/csv` | GET | Schedule C CSV export |
+
+### Personal Finance
+| Endpoint | Methods | Description |
+|----------|---------|-------------|
+| `/api/people` | GET | Household roster (read-only) |
+| `/api/net-worth` | GET | Per-account balances + household totals + per-person slices |
+| `/api/balances` | GET, POST, DELETE | Manual balance snapshots (upsert by account_id + as_of_date) |
+| `/api/airline-miles` | GET | Page payload — programmes with memberships and latest balance |
+| `/api/airline-miles/programs` | GET, POST | Loyalty-programme registry |
+| `/api/airline-miles/memberships` | POST | Create a (programme, person) membership |
+| `/api/airline-miles/memberships/{id}` | PATCH, DELETE | Update or remove a membership (cascades snapshots) |
+| `/api/airline-miles/snapshots` | POST | Upsert a points balance by membership_id + as_of_date |
+| `/api/airline-miles/snapshots/{id}` | DELETE | Remove a single snapshot |
+| `/api/credit-scores` | GET, POST | List with optional ?person_id and ?bureau filters; POST upserts by (person, bureau, model, date) |
+| `/api/credit-scores/batch` | POST | Upsert several bureaus at once (the 3-bureau happy path) |
+| `/api/credit-scores/{id}` | DELETE | Remove a single reading |
 
 ### Import/Export
 | Endpoint | Methods | Description |

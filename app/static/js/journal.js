@@ -68,8 +68,12 @@ const JournalPage = {
     _accounts: [],
 
     async showForm() {
-        const accounts = await API.get('/accounts');
+        const [accounts, classes] = await Promise.all([
+            API.get('/accounts'),
+            API.get('/classes'),
+        ]);
         JournalPage._accounts = accounts;
+        JournalPage._classes = classes;
         JournalPage._lineCount = 2;
 
         const acctOpts = accounts.map(a =>
@@ -79,6 +83,9 @@ const JournalPage = {
         openModal('New Journal Entry', `
             <form onsubmit="JournalPage.save(event)">
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="je-class-select" aria-required="true">${classOptions(classes)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); JournalPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Date *</label>
                         <input name="date" type="date" required value="${todayISO()}"></div>
                     <div class="form-group"><label>Reference</label>
@@ -159,6 +166,7 @@ const JournalPage = {
     async save(e) {
         e.preventDefault();
         const form = e.target;
+        if (!requireClassPicked(form)) return;
         const lines = [];
         $$('#je-lines tr').forEach(row => {
             const account_id = row.querySelector('.je-account')?.value;
@@ -179,6 +187,7 @@ const JournalPage = {
                 date: form.date.value,
                 description: form.description.value,
                 reference: form.reference.value || null,
+                class_id: parseInt(form.class_id.value),
                 lines,
             });
             toast('Journal entry created');
@@ -194,5 +203,14 @@ const JournalPage = {
             toast('Journal entry voided');
             App.navigate('#/journal');
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            JournalPage._classes = fresh;
+            const sel = $('#je-class-select');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
     },
 };

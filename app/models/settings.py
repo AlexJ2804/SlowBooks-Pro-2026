@@ -73,4 +73,14 @@ DEFAULT_SETTINGS = {
     "late_fee_enabled": "false",
     "late_fee_rate": "1.5",
     "late_fee_grace_days": "15",
+    # Phase 11: Multi-currency (invoices only in this phase)
+    "home_currency": "USD",
+    # Phase 12: Receipt parsing via Anthropic API
+    "anthropic_api_key": "",
+    "receipt_parser_enabled": "false",
+    "receipt_parser_model": "claude-haiku-4-5-20251001",
+    "receipt_parser_max_file_size_mb": "10",
+    # NB: per-month parse counters live as keys of the form
+    # "receipts_parsed_count_YYYYMM" — they're incremented internally on
+    # each successful parse and not exposed via PUT (route whitelist).
 }

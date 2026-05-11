@@ -8,13 +8,15 @@
 const SettingsPage = {
     async render() {
         const s = await API.get('/settings');
-        setTimeout(() => { SettingsPage.loadBackups(); SettingsPage.loadEmailTemplates(); }, 0);
+        setTimeout(() => {
+            SettingsPage.loadBackups();
+            SettingsPage.loadEmailTemplates();
+            SettingsPage.loadClasses();
+            SettingsPage.renderParseCounter(s);
+        }, 0);
         return `
             <div class="page-header">
                 <h2>Company Settings</h2>
-                <div style="font-size:10px; color:var(--text-muted);">
-                    CPreferencesDialog — IDD_PREFERENCES @ 0x0023F800
-                </div>
             </div>
             <form id="settings-form" onsubmit="SettingsPage.save(event)">
                 <div class="settings-section">
@@ -76,6 +78,37 @@ const SettingsPage = {
                             <textarea name="invoice_notes">${escapeHtml(s.invoice_notes || '')}</textarea></div>
                         <div class="form-group full-width"><label>Invoice Footer</label>
                             <input name="invoice_footer" value="${escapeHtml(s.invoice_footer || '')}"></div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Classes</h3>
+                    <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
+                        Tag every transaction with a class so reports can slice by Alex W-2,
+                        Wife 1099, Ireland Projects, etc. Archived classes stay attached to
+                        their existing transactions but are hidden from new-transaction dropdowns.
+                        The "Uncategorized" class is the system default for auto-generated
+                        entries (Stripe webhooks, payroll, late fees) and cannot be renamed
+                        or archived.
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="SettingsPage.newClass()">+ New Class</button>
+                    </div>
+                    <div id="settings-classes-list"></div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Multi-Currency</h3>
+                    <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
+                        Home currency is used for the YTD total and the home-currency
+                        column on the invoices list. Changing this does not retroactively
+                        recalculate existing invoices.
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Home Currency</label>
+                            <select name="home_currency">
+                                ${currencyOptions((s.home_currency || 'USD').toUpperCase())}
+                            </select></div>
                     </div>
                 </div>
 
@@ -183,6 +216,50 @@ const SettingsPage = {
                             <input name="late_fee_rate" type="number" step="0.1" value="${escapeHtml(s.late_fee_rate || '1.5')}"></div>
                         <div class="form-group"><label>Grace Days</label>
                             <input name="late_fee_grace_days" type="number" value="${escapeHtml(s.late_fee_grace_days || '15')}"></div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Receipt Parsing (Anthropic API)</h3>
+                    <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
+                        Upload receipt images or PDFs and have them auto-filled into a bill confirm form.
+                        Requires an Anthropic API key. The user always reviews the extracted data before saving.
+                        <strong>Single-worker only:</strong> the post-parse attachment handoff uses an in-process
+                        token store; running with multiple workers will break the attach step.
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Enable AI receipt parsing</label>
+                            <select name="receipt_parser_enabled">
+                                <option value="false" ${s.receipt_parser_enabled !== 'true' ? 'selected' : ''}>Disabled</option>
+                                <option value="true" ${s.receipt_parser_enabled === 'true' ? 'selected' : ''}>Enabled</option>
+                            </select></div>
+                        <div class="form-group"><label>Model</label>
+                            <select name="receipt_parser_model">
+                                <option value="claude-haiku-4-5-20251001" ${(s.receipt_parser_model || 'claude-haiku-4-5-20251001') === 'claude-haiku-4-5-20251001' ? 'selected' : ''}>Haiku 4.5 (cheapest, recommended)</option>
+                                <option value="claude-sonnet-4-6" ${s.receipt_parser_model === 'claude-sonnet-4-6' ? 'selected' : ''}>Sonnet 4.6 (more accurate, ~10× cost)</option>
+                            </select>
+                            <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">Haiku handles typical receipts well. Pick Sonnet only if you see frequent extraction errors.</div>
+                        </div>
+                        <div class="form-group full-width"><label>API key</label>
+                            <input name="anthropic_api_key" type="password" value="${escapeHtml(s.anthropic_api_key || '')}" placeholder="sk-ant-..." autocomplete="off">
+                            <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">
+                                Stored server-side. After save, this field shows the masked value (••••••••<em>last4</em>); leave it as-is to keep the saved key.
+                            </div>
+                            <button type="button" class="btn btn-sm btn-secondary" id="receipt-test-conn-btn" style="margin-top:6px;" onclick="SettingsPage.testReceiptParser()">Test Connection</button>
+                            <span id="receipt-test-conn-result" style="font-size:11px; margin-left:8px;"></span>
+                        </div>
+                        <div class="form-group"><label>Max upload size</label>
+                            <select name="receipt_parser_max_file_size_mb">
+                                <option value="5" ${s.receipt_parser_max_file_size_mb === '5' ? 'selected' : ''}>5 MB</option>
+                                <option value="10" ${(s.receipt_parser_max_file_size_mb || '10') === '10' ? 'selected' : ''}>10 MB</option>
+                                <option value="25" ${s.receipt_parser_max_file_size_mb === '25' ? 'selected' : ''}>25 MB (PDF only — Anthropic caps images at 5 MB regardless)</option>
+                            </select>
+                            <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">Images are hard-capped at 5 MB by the Anthropic API even if you raise this. PDFs honor the chosen limit.</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Usage this month</label>
+                            <div id="receipt-parse-counter" style="padding-top:6px; font-weight:600;">— receipts parsed</div>
+                        </div>
                     </div>
                 </div>
 
@@ -350,5 +427,101 @@ const SettingsPage = {
             closeModal();
             SettingsPage.loadEmailTemplates();
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    async loadClasses() {
+        try {
+            const classes = await API.get('/classes?include_archived=true');
+            const el = $('#settings-classes-list');
+            if (!el) return;
+            if (classes.length === 0) {
+                el.innerHTML = '<div style="font-size:11px; color:var(--text-muted);">No classes.</div>';
+                return;
+            }
+            el.innerHTML = `<div class="table-container"><table>
+                <thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>${classes.map(c => {
+                    const locked = c.is_system_default;
+                    const archivedBadge = c.is_archived
+                        ? '<span style="font-size:10px; padding:1px 6px; background:var(--gray-200); border-radius:4px;">archived</span>'
+                        : '';
+                    const sysBadge = locked
+                        ? '<span style="font-size:10px; padding:1px 6px; background:var(--primary-light); color:var(--qb-blue); border-radius:4px;">system</span>'
+                        : '';
+                    return `<tr>
+                        <td><strong>${escapeHtml(c.name)}</strong> ${sysBadge} ${archivedBadge}</td>
+                        <td>${c.is_archived ? 'Archived' : 'Active'}</td>
+                        <td class="actions">
+                            <button class="btn btn-sm btn-secondary" ${locked ? 'disabled title="System default — cannot be renamed"' : `onclick="SettingsPage.renameClass(${c.id}, '${escapeHtml(escapeJs(c.name))}')"`}>Rename</button>
+                            <button class="btn btn-sm btn-secondary" ${locked ? 'disabled title="System default — cannot be archived"' : `onclick="SettingsPage.toggleArchiveClass(${c.id}, ${!c.is_archived})"`}>${c.is_archived ? 'Unarchive' : 'Archive'}</button>
+                        </td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table></div>`;
+        } catch (e) { /* ignore */ }
+    },
+
+    newClass() {
+        InlineCreate.open('class', () => {
+            SettingsPage.loadClasses();
+        });
+    },
+
+    async renameClass(classId, currentName) {
+        const name = prompt('New name:', currentName);
+        if (!name || name.trim() === currentName) return;
+        try {
+            await API.patch(`/classes/${classId}`, { name: name.trim() });
+            toast('Class renamed');
+            SettingsPage.loadClasses();
+        } catch (err) { toast(err.message, 'error'); }
+    },
+
+    async toggleArchiveClass(classId, archive) {
+        try {
+            await API.patch(`/classes/${classId}`, { is_archived: archive });
+            toast(archive ? 'Class archived' : 'Class unarchived');
+            SettingsPage.loadClasses();
+        } catch (err) { toast(err.message, 'error'); }
+    },
+
+    renderParseCounter(settings) {
+        // Settings comes from GET /api/settings; the per-month counter
+        // surfaces as a key like receipts_parsed_count_202604 if any
+        // parse has happened this month, otherwise it just isn't there.
+        const el = document.getElementById('receipt-parse-counter');
+        if (!el) return;
+        const now = new Date();
+        const yyyymm = now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0');
+        const key = `receipts_parsed_count_${yyyymm}`;
+        const raw = settings[key];
+        const n = raw ? parseInt(raw, 10) : 0;
+        el.textContent = `${Number.isFinite(n) ? n : 0} receipts parsed`;
+    },
+
+    _lastTestConnClick: 0,
+    async testReceiptParser() {
+        // 1-second debounce — Test Connection fires a real (~sub-cent)
+        // API call. Click-spam would be wasteful even if cheap.
+        const now = Date.now();
+        if (now - SettingsPage._lastTestConnClick < 1000) return;
+        SettingsPage._lastTestConnClick = now;
+
+        const btn = document.getElementById('receipt-test-conn-btn');
+        const result = document.getElementById('receipt-test-conn-result');
+        if (btn) btn.disabled = true;
+        if (result) { result.textContent = 'Testing…'; result.style.color = 'var(--gray-500)'; }
+        try {
+            const r = await API.post('/settings/test-receipt-parser', {});
+            if (r.ok) {
+                if (result) { result.textContent = '✓ ' + (r.detail || 'Connected'); result.style.color = 'var(--success, #1a7f37)'; }
+            } else {
+                if (result) { result.textContent = '✗ ' + (r.detail || 'Failed'); result.style.color = 'var(--danger, #b42318)'; }
+            }
+        } catch (err) {
+            if (result) { result.textContent = '✗ ' + (err.message || 'Failed'); result.style.color = 'var(--danger, #b42318)'; }
+        } finally {
+            if (btn) btn.disabled = false;
+        }
     },
 };

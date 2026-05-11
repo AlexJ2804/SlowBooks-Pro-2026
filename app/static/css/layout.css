@@ -1,0 +1,413 @@
+/* ============================================================================
+ * Slowbooks Pro 2026 — Layout
+ *
+ * App shell — sidebar (240px white, grouped nav with eyebrows), topbar (40px
+ * white utility strip), main content (per-page header + segs row + body),
+ * footer status bar.
+ *
+ * The existing index.html keeps its IDs (#topbar, #sidebar, #main-area,
+ * #content, #page-content, #statusbar). This file restyles those IDs into
+ * the cabin shell — no markup-level renaming required.
+ * ========================================================================= */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
+
+/* === Topbar — minimal utility strip === */
+#topbar {
+  height: var(--topbar-height);
+  background: var(--card);
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.topbar-brand {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.topbar-brand span {
+  font-family: var(--font-mono-ds);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--ink-3);
+  margin-left: 6px;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.tb-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--rule);
+  margin: 0 4px;
+}
+.tb-btn {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-input);
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.tb-btn:hover  { border-color: var(--ink); color: var(--ink); }
+.tb-btn:active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.tb-search {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-input);
+  color: var(--ink);
+  padding: 6px 12px;
+  width: 320px;
+  flex: 0 1 320px;
+}
+.tb-search::placeholder { color: var(--ink-3); }
+.tb-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  background: var(--card);
+}
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.topbar-clock {
+  font-family: var(--font-mono-ds);
+  font-size: 12px;
+  color: var(--ink-2);
+  padding: 0 8px;
+}
+
+/* === Main area === */
+#main-area {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* === Sidebar === */
+#sidebar {
+  width: var(--sidebar-width);
+  background: var(--card);
+  border-right: 1px solid var(--rule);
+  padding: 22px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.sidebar-header {
+  padding: 0 20px 20px;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sidebar-glyph {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(160deg, #1F4FA8, #6BA3D6);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.sidebar-glyph::after {
+  content: "";
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: 30%;
+  height: 40%;
+  background: rgba(255, 255, 255, 0.85);
+  transform: rotate(-12deg);
+}
+.sidebar-header h1 {
+  font-family: var(--font-ui);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.1;
+  text-shadow: none;
+}
+.sidebar-edition {
+  font-family: var(--font-mono-ds);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.2em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.nav-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+}
+.nav-section {
+  padding: 16px 22px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+}
+.nav-section:first-of-type {
+  padding-top: 14px;
+}
+.nav-links > li:not(.nav-section) {
+  padding: 0 12px;
+}
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  border-radius: var(--radius-input);
+  border-left: 0;
+  transition: background .12s, color .12s;
+}
+.nav-link.active { border-left: 0; }
+#sidebar { color: var(--ink); }   /* style.css set white text on the sidebar */
+.nav-link:hover {
+  background: var(--rule-sft);
+  color: var(--ink);
+}
+.nav-link.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.nav-icon {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+  flex-shrink: 0;
+  font-size: 0;          /* hide the legacy unicode glyphs — use the dot */
+  line-height: 0;
+  display: inline-block;
+}
+.nav-link.active .nav-icon { opacity: 1; }
+.sidebar-footer {
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-mono-ds);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  line-height: 1.6;
+}
+
+/* === Content === */
+#content {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg);
+  padding: 0;                 /* page handles its own padding via .sb-head etc. */
+}
+#page-content {
+  max-width: none;            /* design fills the available width edge-to-edge */
+  min-height: 100%;
+  padding: 0;
+}
+
+/* Legacy-page wrapper.
+ *
+ * Cabin pages (e.g. /#/miles) use .sb-head + .sb-grid + .sb-section
+ * which each carry their own --pad-page-x gutter, so #page-content
+ * can stay flush. Pages that haven't been refit yet (balances, net
+ * worth, credit scores, customers, …) render their content directly
+ * inside #page-content and would otherwise hug the sidebar.
+ *
+ * Wrapping their top-level container in `.sb-page-pad` gives them
+ * the same gutter as cabin pages without affecting cabin pages, and
+ * gets removed page-by-page as each one migrates to the cabin
+ * layout primitives. */
+.sb-page-pad {
+  padding: var(--pad-page-top) var(--pad-page-x) var(--pad-page-bottom);
+}
+
+/* === Per-page header === */
+.sb-head {
+  padding: var(--pad-page-top) var(--pad-page-x) 18px;
+}
+.sb-head .sb-crumb {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+}
+.sb-head h1,
+.sb-head .sb-title {
+  margin: 4px 0 0;
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+.sb-head .sb-sub {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin-top: 4px;
+}
+.sb-head-row {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+}
+.sb-head-aside {
+  text-align: right;
+}
+.sb-head-aside .lbl { font-size: 12px; color: var(--ink-3); letter-spacing: 0.04em; text-transform: uppercase; }
+.sb-head-aside .val { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); margin-top: 2px; font-family: var(--font-ui); }
+.sb-head-aside .sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+
+/* === Segmented controls / pill row === */
+.sb-segs {
+  display: flex;
+  gap: 8px;
+  padding: 0 var(--pad-page-x) 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sb-segs > .sb-grow { margin-left: auto; }
+
+.sb-pill {
+  font-family: var(--font-ui);
+  padding: 6px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.sb-pill:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.sb-pill.on,
+.sb-pill[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--card);
+  border-color: var(--ink);
+}
+.sb-pill.on:hover { color: var(--card); }
+
+.sb-pill.primary {
+  background: var(--accent);
+  color: #FFFFFF;
+  border-color: var(--accent);
+}
+.sb-pill.primary:hover { color: #FFFFFF; background: #173E85; border-color: #173E85; }
+
+/* === Page section (eyebrow-titled block: "Recent invoices", etc.) === */
+.sb-section {
+  padding: 0 var(--pad-page-x);
+  margin-bottom: 24px;
+}
+.sb-section:last-child { margin-bottom: 0; padding-bottom: var(--pad-page-bottom); }
+.sb-section-title {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  margin: 0 0 12px;
+}
+
+/* === Card grid === */
+.sb-grid {
+  padding: 0 var(--pad-page-x) var(--pad-page-bottom);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-grid);
+  align-content: start;
+}
+.sb-grid.cols-1 { grid-template-columns: 1fr; }
+.sb-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sb-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) {
+  .sb-grid:not(.cols-1) { grid-template-columns: 1fr; }
+}
+
+/* === Footer status bar === */
+#statusbar {
+  height: var(--statusbar-height);
+  background: var(--card);
+  border-top: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--pad-page-x);
+  font-size: 12px;
+  color: var(--ink-3);
+  flex-shrink: 0;
+  gap: 16px;
+}
+.status-section {
+  font-family: var(--font-ui);
+  color: var(--ink-3);
+}
+.status-section:first-of-type { color: var(--ink-2); }
+.status-sep {
+  flex: 1;
+}
+.status-right {
+  margin-left: auto;
+  font-family: var(--font-mono-ds);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+
+/* === Print & responsive === */
+@media print {
+  #topbar, #sidebar, #statusbar { display: none !important; }
+  #content { padding: 0; }
+  .sb-head { padding-top: 0; }
+}
+@media (max-width: 900px) {
+  #sidebar {
+    width: 60px;
+  }
+  .sidebar-header h1,
+  .sidebar-edition,
+  .nav-link { font-size: 0; }
+  .nav-link { justify-content: center; }
+  .nav-section { font-size: 0; padding: 8px 0; }
+}

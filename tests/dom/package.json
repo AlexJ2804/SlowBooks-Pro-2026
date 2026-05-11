@@ -1,0 +1,12 @@
+{
+  "name": "slowbooks-dom-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DOM tests for the SlowBooks frontend. Run via `node --test test_inline_error.js`.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}

@@ -8,7 +8,11 @@
  */
 const PaymentsPage = {
     async render() {
-        const payments = await API.get('/payments');
+        const [payments, settings] = await Promise.all([
+            API.get('/payments'),
+            API.get('/settings'),
+        ]);
+        const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
         let html = `
             <div class="page-header">
                 <h2>Payments</h2>
@@ -21,15 +25,19 @@ const PaymentsPage = {
             html += `<div class="table-container"><table>
                 <thead><tr>
                     <th>Date</th><th>Customer</th><th>Method</th><th>Reference</th>
-                    <th class="amount">Amount</th><th>Actions</th>
+                    <th class="amount">Amount</th>
+                    <th class="amount">Amount (${escapeHtml(homeCurrency)})</th>
+                    <th>Actions</th>
                 </tr></thead><tbody>`;
             for (const p of payments) {
+                const ccy = (p.currency || 'USD').toUpperCase();
                 html += `<tr>
                     <td>${formatDate(p.date)}</td>
                     <td>${escapeHtml(p.customer_name || '')}</td>
                     <td>${escapeHtml(p.method || '')}${p.is_voided ? ' <span style="color:var(--danger);font-weight:700;">[VOID]</span>' : ''}</td>
                     <td>${escapeHtml(p.reference || p.check_number || '')}</td>
-                    <td class="amount">${formatCurrency(p.amount)}</td>
+                    <td class="amount">${formatCurrency(p.amount, ccy)}</td>
+                    <td class="amount">${formatCurrency(p.home_currency_amount, homeCurrency)}</td>
                     <td class="actions">
                         <button class="btn btn-sm btn-secondary" onclick="PaymentsPage.view(${p.id})">View</button>
                     </td>
@@ -41,14 +49,24 @@ const PaymentsPage = {
     },
 
     async view(id) {
-        const p = await API.get(`/payments/${id}`);
+        const [p, settings] = await Promise.all([
+            API.get(`/payments/${id}`),
+            API.get('/settings'),
+        ]);
+        const ccy = (p.currency || 'USD').toUpperCase();
+        const homeCcy = (settings.home_currency || 'USD').toUpperCase();
+        const showHome = ccy !== homeCcy;
+        const amountLine = showHome
+            ? `${formatCurrency(p.amount, ccy)} <span style="color:var(--gray-500); font-weight:normal;">(≈ ${formatCurrency(p.home_currency_amount, homeCcy)})</span>`
+            : formatCurrency(p.amount, ccy);
+
         let allocHtml = '';
         if (p.allocations.length) {
             allocHtml = `<h4 style="margin:12px 0 8px;">Applied to Invoices</h4>
                 <div class="table-container"><table><thead><tr>
                 <th>Invoice</th><th class="amount">Amount</th></tr></thead><tbody>`;
             for (const a of p.allocations) {
-                allocHtml += `<tr><td>#${a.invoice_id}</td><td class="amount">${formatCurrency(a.amount)}</td></tr>`;
+                allocHtml += `<tr><td>#${a.invoice_id}</td><td class="amount">${formatCurrency(a.amount, ccy)}</td></tr>`;
             }
             allocHtml += `</tbody></table></div>`;
         }
@@ -57,7 +75,8 @@ const PaymentsPage = {
             <div style="margin-bottom:12px;">
                 <strong>Customer:</strong> ${escapeHtml(p.customer_name || '')}<br>
                 <strong>Date:</strong> ${formatDate(p.date)}<br>
-                <strong>Amount:</strong> ${formatCurrency(p.amount)}<br>
+                <strong>Amount:</strong> ${amountLine}<br>
+                <strong>Currency:</strong> ${escapeHtml(ccy)}${showHome ? ` <span style="color:var(--gray-500);">(rate ${parseFloat(p.exchange_rate).toFixed(4)} → ${escapeHtml(homeCcy)})</span>` : ''}<br>
                 <strong>Method:</strong> ${escapeHtml(p.method || 'N/A')}<br>
                 ${p.check_number ? `<strong>Check #:</strong> ${escapeHtml(p.check_number)}<br>` : ''}
                 ${p.reference ? `<strong>Reference:</strong> ${escapeHtml(p.reference)}<br>` : ''}
@@ -85,18 +104,32 @@ const PaymentsPage = {
     _invoices: [],
 
     async showForm() {
-        const [customers, accounts] = await Promise.all([
+        const [customers, accounts, settings, classes] = await Promise.all([
             API.get('/customers?active_only=true'),
             API.get('/accounts'),
+            API.get('/settings'),
+            API.get('/classes'),
         ]);
         const bankAccts = accounts.filter(a => a.account_type === 'asset');
+        const homeCurrency = (settings.home_currency || 'USD').toUpperCase();
+        PaymentsPage._homeCurrency = homeCurrency;
+        PaymentsPage._formCurrency = homeCurrency;
+        PaymentsPage._classes = classes;
 
         const custOpts = customers.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
         const bankOpts = bankAccts.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
 
         openModal('Record Payment', `
             <form id="payment-form" onsubmit="PaymentsPage.save(event)">
+                <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px; padding:6px 8px; background:var(--gray-50); border-left:2px solid var(--qb-blue);">
+                    <strong>Note:</strong> Cross-currency reconciliation is not supported. If any
+                    allocation is against an invoice in a different currency, the server will
+                    reject the request with HTTP 400 and no payment will be saved.
+                </div>
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="payment-class-select" aria-required="true">${classOptions(classes)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); PaymentsPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Customer *</label>
                         <select name="customer_id" required onchange="PaymentsPage.loadInvoices(this.value)">
                             <option value="">Select...</option>${custOpts}</select></div>
@@ -110,6 +143,12 @@ const PaymentsPage = {
                             <option>Check</option><option>Cash</option>
                             <option>Credit Card</option><option>ACH/EFT</option><option>Other</option>
                         </select></div>
+                    <div class="form-group"><label>Currency</label>
+                        <select name="currency" id="payment-currency" onchange="PaymentsPage.currencyChanged()">
+                            ${currencyOptions(homeCurrency)}
+                        </select></div>
+                    <div class="form-group"><label>Exchange Rate <span style="color:var(--gray-500); font-weight:normal;">(→ ${escapeHtml(homeCurrency)})</span></label>
+                        <input name="exchange_rate" id="payment-exchange-rate" type="number" step="0.00000001" value="1" disabled></div>
                     <div class="form-group"><label>Check #</label>
                         <input name="check_number"></div>
                     <div class="form-group"><label>Reference</label>
@@ -128,6 +167,42 @@ const PaymentsPage = {
             </form>`);
     },
 
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            PaymentsPage._classes = fresh;
+            const sel = $('#payment-class-select');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
+    },
+
+    async currencyChanged() {
+        const ccy = $('#payment-currency').value;
+        const rateField = $('#payment-exchange-rate');
+        PaymentsPage._formCurrency = ccy;
+        if (ccy === PaymentsPage._homeCurrency) {
+            rateField.value = '1';
+            rateField.disabled = true;
+            return;
+        }
+        rateField.disabled = false;
+        try {
+            const res = await API.get(`/fx/rate?from=${encodeURIComponent(ccy)}&to=${encodeURIComponent(PaymentsPage._homeCurrency)}`);
+            if (res.rate) {
+                rateField.value = parseFloat(res.rate);
+                if (res.source === 'bankofcanada-cross') {
+                    toast(`FX rate ${ccy}→${PaymentsPage._homeCurrency}: ${parseFloat(res.rate).toFixed(4)} (cross-rate via CAD)`);
+                }
+            } else {
+                rateField.value = '1';
+                toast(`FX rate ${ccy}→${PaymentsPage._homeCurrency} unavailable; using 1.0`, 'error');
+            }
+        } catch (err) {
+            rateField.value = '1';
+            toast('FX lookup failed; using 1.0', 'error');
+        }
+    },
+
     async loadInvoices(customerId) {
         if (!customerId) { $('#payment-invoices').innerHTML = ''; return; }
         const invoices = await API.get(`/invoices?customer_id=${customerId}&status=sent`);
@@ -141,14 +216,18 @@ const PaymentsPage = {
 
         let html = `<h4 style="margin-bottom:8px;">Apply to Invoices</h4>
             <div class="table-container"><table><thead><tr>
-            <th>Invoice</th><th>Date</th><th class="amount">Balance</th><th class="amount">Apply</th>
+            <th>Invoice</th><th>Date</th><th>Ccy</th>
+            <th class="amount">Balance</th><th class="amount">Apply</th>
             </tr></thead><tbody>`;
         for (const inv of PaymentsPage._invoices) {
+            const ccy = (inv.currency || 'USD').toUpperCase();
             html += `<tr>
                 <td>#${escapeHtml(inv.invoice_number)}</td>
                 <td>${formatDate(inv.date)}</td>
-                <td class="amount">${formatCurrency(inv.balance_due)}</td>
+                <td><span style="font-size:10px; padding:1px 6px; background:var(--gray-100); border-radius:4px;">${escapeHtml(ccy)}</span></td>
+                <td class="amount">${formatCurrency(inv.balance_due, ccy)}</td>
                 <td><input class="alloc-amount" data-invoice="${inv.id}" data-max="${inv.balance_due}"
+                    data-currency="${ccy}"
                     type="number" step="0.01" min="0" max="${inv.balance_due}"
                     style="width:100px; padding:4px 8px; border:1px solid var(--gray-300); border-radius:4px;"></td>
             </tr>`;
@@ -160,13 +239,22 @@ const PaymentsPage = {
     async save(e) {
         e.preventDefault();
         const form = e.target;
+        if (!requireClassPicked(form)) return;
+        const payCcy = (form.currency.value || 'USD').toUpperCase();
         const allocations = [];
+        let mismatch = null;
         $$('.alloc-amount').forEach(input => {
             const amt = parseFloat(input.value);
             if (amt > 0) {
+                const invCcy = (input.dataset.currency || 'USD').toUpperCase();
+                if (invCcy !== payCcy && !mismatch) mismatch = invCcy;
                 allocations.push({ invoice_id: parseInt(input.dataset.invoice), amount: amt });
             }
         });
+        if (mismatch) {
+            toast(`Selected invoice is in ${mismatch}, but payment is in ${payCcy}. Cross-currency reconciliation is not supported.`, 'error');
+            return;
+        }
 
         const data = {
             customer_id: parseInt(form.customer_id.value),
@@ -177,6 +265,9 @@ const PaymentsPage = {
             reference: form.reference.value || null,
             deposit_to_account_id: form.deposit_to_account_id.value ? parseInt(form.deposit_to_account_id.value) : null,
             notes: form.notes.value || null,
+            currency: payCcy,
+            exchange_rate: parseFloat(form.exchange_rate.value) || 1,
+            class_id: parseInt(form.class_id.value),
             allocations,
         };
 

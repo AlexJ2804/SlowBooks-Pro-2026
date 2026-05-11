@@ -4,10 +4,12 @@
  */
 const BatchPaymentsPage = {
     async render() {
-        const [invoices, accounts] = await Promise.all([
+        const [invoices, accounts, classes] = await Promise.all([
             API.get('/invoices'),
             API.get('/accounts?account_type=asset'),
+            API.get('/classes'),
         ]);
+        BatchPaymentsPage._classes = classes;
         const openInv = invoices.filter(i => i.balance_due > 0 && i.status !== 'void');
 
         // Group by customer
@@ -26,6 +28,9 @@ const BatchPaymentsPage = {
             </div>
             <form onsubmit="BatchPaymentsPage.save(event)">
                 <div class="form-grid">
+                    <div class="form-group"><label>Class *</label>
+                        <select name="class_id" id="bp-class-select" aria-required="true">${classOptions(classes)}</select>
+                        <a href="#" style="font-size:11px;" onclick="event.preventDefault(); BatchPaymentsPage.newClass()">+ New class</a></div>
                     <div class="form-group"><label>Payment Date *</label>
                         <input name="date" type="date" required value="${todayISO()}"></div>
                     <div class="form-group"><label>Deposit To</label>
@@ -88,6 +93,7 @@ const BatchPaymentsPage = {
     async save(e) {
         e.preventDefault();
         const form = e.target;
+        if (!requireClassPicked(form)) return;
         const allocations = [];
         $$('.batch-amt').forEach(input => {
             const amt = parseFloat(input.value) || 0;
@@ -107,11 +113,21 @@ const BatchPaymentsPage = {
                 deposit_to_account_id: form.deposit_to_account_id.value ? parseInt(form.deposit_to_account_id.value) : null,
                 method: form.method.value,
                 reference: form.reference.value || null,
+                class_id: parseInt(form.class_id.value),
                 allocations,
             });
             toast(`${result.payments_created} payment(s) created`);
             App.navigate('#/batch-payments');
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    newClass() {
+        InlineCreate.open('class', async (created) => {
+            const fresh = await API.get('/classes');
+            BatchPaymentsPage._classes = fresh;
+            const sel = $('#bp-class-select');
+            if (sel) sel.innerHTML = classOptions(fresh, created.id);
+        });
     },
 };
 

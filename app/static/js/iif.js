@@ -22,6 +22,31 @@ const IIFPage = {
                 </div>
             </div>
 
+            <!-- Gmail receipt scraper trigger.
+                 Calls the same Apps Script web app the weekly APScheduler
+                 cron uses (app/services/scheduled_import.py) but right now
+                 instead of waiting until Monday 6am. Synchronous: the button
+                 disables and shows a spinner until Apps Script finishes the
+                 scrape (a few seconds for a typical week, up to 6 minutes
+                 in the worst case). -->
+            <div class="iif-section" style="margin-bottom:16px;">
+                <h3 style="display:flex; align-items:center; gap:8px;">
+                    &#9993; Pull from Gmail Scraper
+                </h3>
+                <p style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">
+                    Runs the Apps Script that scans your Gmail for receipts and
+                    imports them as bills. Same pipeline as the weekly Monday
+                    6am cron &mdash; just runs right now instead.
+                </p>
+                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                    <button id="scraper-run-btn" class="btn btn-primary"
+                            onclick="IIFPage.runScraperNow()">
+                        Pull receipts now
+                    </button>
+                    <div id="scraper-result" style="font-size:11px; color:var(--text-secondary);"></div>
+                </div>
+            </div>
+
             <div class="iif-sections">
                 <!-- Export Section -->
                 <div class="iif-section">
@@ -315,7 +340,8 @@ const IIFPage = {
             const total = (result.accounts || 0) + (result.customers || 0) +
                           (result.vendors || 0) + (result.items || 0) +
                           (result.invoices || 0) + (result.payments || 0) +
-                          (result.estimates || 0);
+                          (result.estimates || 0) + (result.bills || 0) +
+                          (result.deposits || 0);
             toast(`Imported ${total} records`);
             App.setStatus('QuickBooks Interop — Import complete');
         } catch (err) {
@@ -333,6 +359,8 @@ const IIFPage = {
             ['Invoices', result.invoices],
             ['Payments', result.payments],
             ['Estimates', result.estimates],
+            ['Bills', result.bills],
+            ['Deposits', result.deposits],
         ];
 
         let html = '<div class="iif-results"><h4>Import Results</h4>';
@@ -343,6 +371,16 @@ const IIFPage = {
                     <span class="result-count">${count} imported</span>
                 </div>`;
             }
+        }
+        // Surface dedup hits — when re-running an IIF after a partial
+        // failure, the user wants to see "X already imported" so a
+        // total of zero new records is unambiguous (nothing failed
+        // silently, the rows were already there).
+        if (result.duplicates_skipped > 0) {
+            html += `<div class="result-row">
+                <span>Skipped</span>
+                <span class="result-count">${result.duplicates_skipped} duplicates</span>
+            </div>`;
         }
         html += '</div>';
 
@@ -365,5 +403,54 @@ const IIFPage = {
         }
 
         $('#iif-import-result').innerHTML = html;
+    },
+
+    /**
+     * Trigger the Apps Script Gmail scraper synchronously and import its
+     * IIF output. Disables the button while in flight (Apps Script web
+     * apps can run for up to 6 minutes in the worst case) and surfaces
+     * counts inline next to the button when done.
+     */
+    async runScraperNow() {
+        const btn = document.getElementById('scraper-run-btn');
+        const out = document.getElementById('scraper-result');
+        if (!btn || !out) return;
+
+        btn.disabled = true;
+        const originalLabel = btn.textContent;
+        btn.textContent = 'Scanning Gmail…';
+        out.style.color = 'var(--text-secondary, var(--ink-2))';
+        out.textContent = 'Calling Apps Script — this can take up to a few minutes.';
+
+        try {
+            const r = await API.post('/scheduled-import/run-now', {});
+            const counts = [
+                `${r.bills} bill${r.bills === 1 ? '' : 's'}`,
+                `${r.deposits} deposit${r.deposits === 1 ? '' : 's'}`,
+                `${r.duplicates_skipped} duplicate${r.duplicates_skipped === 1 ? '' : 's'} skipped`,
+            ].join(' · ');
+            const errCount = (r.errors || []).length;
+            const elapsed = r.elapsed_seconds != null ? ` · ${r.elapsed_seconds}s` : '';
+            const empty = r.iif_bytes === 0;
+
+            if (empty) {
+                out.style.color = 'var(--text-secondary, var(--ink-2))';
+                out.textContent = `No new transactions${elapsed}.`;
+            } else if (errCount > 0) {
+                out.style.color = 'var(--qb-orange, var(--warning, #b45309))';
+                out.textContent = `${counts} · ${errCount} import error${errCount === 1 ? '' : 's'}${elapsed}. See archive: ${r.archive_path || '(none)'}`;
+            } else {
+                out.style.color = 'var(--success, #339966)';
+                out.textContent = `${counts}${elapsed}.`;
+            }
+            toast(empty ? 'Scraper ran — no new receipts' : `Imported ${r.bills + r.deposits} new entries`);
+        } catch (err) {
+            out.style.color = 'var(--qb-red, var(--negative, #c8102e))';
+            out.textContent = err.message || 'Scraper run failed';
+            toast(err.message || 'Scraper run failed', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalLabel;
+        }
     },
 };

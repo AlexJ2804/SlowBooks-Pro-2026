@@ -15,6 +15,7 @@ from app.models.accounts import Account
 from app.schemas.bills import BillPaymentCreate, BillPaymentResponse
 from app.services.accounting import create_journal_entry
 from app.services.closing_date import check_closing_date
+from app.routes._helpers import require_class_id
 
 router = APIRouter(prefix="/api/bill-payments", tags=["bill_payments"])
 
@@ -42,6 +43,7 @@ def list_bill_payments(vendor_id: int = None, db: Session = Depends(get_db)):
 @router.post("", response_model=BillPaymentResponse, status_code=201)
 def create_bill_payment(data: BillPaymentCreate, db: Session = Depends(get_db)):
     check_closing_date(db, data.date)
+    class_id = require_class_id(db, data.class_id)
 
     vendor = db.query(Vendor).filter(Vendor.id == data.vendor_id).first()
     if not vendor:
@@ -51,18 +53,40 @@ def create_bill_payment(data: BillPaymentCreate, db: Session = Depends(get_db)):
     if alloc_total > data.amount:
         raise HTTPException(status_code=400, detail="Allocations exceed payment amount")
 
+    currency = (data.currency or "USD").upper()
+    exchange_rate = Decimal(str(data.exchange_rate)) if data.exchange_rate is not None else Decimal("1")
+    home_currency_amount = (Decimal(str(data.amount)) * exchange_rate).quantize(Decimal("0.01"))
+
+    # Cross-currency reconciliation is intentionally not supported in this
+    # phase — reject any allocation against a bill in a different currency.
+    for alloc_data in data.allocations:
+        bill = db.query(Bill).filter(Bill.id == alloc_data.bill_id).first()
+        if not bill:
+            raise HTTPException(status_code=404, detail=f"Bill {alloc_data.bill_id} not found")
+        bill_ccy = (bill.currency or "USD").upper()
+        if bill_ccy != currency:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Payment currency {currency} does not match bill {bill.bill_number} "
+                    f"currency {bill_ccy}; cross-currency reconciliation is not supported "
+                    f"in this phase."
+                ),
+            )
+
     payment = BillPayment(
         vendor_id=data.vendor_id, date=data.date, amount=data.amount,
         method=data.method, check_number=data.check_number,
         pay_from_account_id=data.pay_from_account_id, notes=data.notes,
+        currency=currency, exchange_rate=exchange_rate,
+        home_currency_amount=home_currency_amount,
+        class_id=class_id,
     )
     db.add(payment)
     db.flush()
 
     for alloc_data in data.allocations:
         bill = db.query(Bill).filter(Bill.id == alloc_data.bill_id).first()
-        if not bill:
-            raise HTTPException(status_code=404, detail=f"Bill {alloc_data.bill_id} not found")
         if alloc_data.amount > float(bill.balance_due):
             raise HTTPException(status_code=400, detail=f"Allocation exceeds bill balance")
 
@@ -96,6 +120,8 @@ def create_bill_payment(data: BillPaymentCreate, db: Session = Depends(get_db)):
         txn = create_journal_entry(
             db, data.date, f"Bill payment to {vendor.name}",
             journal_lines, source_type="bill_payment", source_id=payment.id,
+            currency=currency, exchange_rate=exchange_rate,
+            class_id=class_id,
         )
         payment.transaction_id = txn.id
 

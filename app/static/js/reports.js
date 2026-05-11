@@ -13,7 +13,11 @@ const ReportsPage = {
             <div class="card-grid">
                 <div class="card" style="cursor:pointer" onclick="ReportsPage.profitLoss()">
                     <div class="card-header">Profit & Loss</div>
-                    <p style="font-size:13px; color:var(--gray-500);">Income vs expenses for a period</p>
+                    <p style="font-size:13px; color:var(--gray-500);">Income vs expenses for a period (with class breakdown when unfiltered)</p>
+                </div>
+                <div class="card" style="cursor:pointer" onclick="ReportsPage.profitLossByClass()">
+                    <div class="card-header">P&L by Class</div>
+                    <p style="font-size:13px; color:var(--gray-500);">Deep-dive P&L for a single class</p>
                 </div>
                 <div class="card" style="cursor:pointer" onclick="ReportsPage.balanceSheet()">
                     <div class="card-header">Balance Sheet</div>
@@ -218,55 +222,190 @@ const ReportsPage = {
         await render();
     },
 
+    _plClassFilter: '',
+
     async profitLoss() {
+        const classes = await API.get('/classes');
+        ReportsPage._plClasses = classes;
         await ReportsPage.openPeriodModal("Profit & Loss", "this_year_to_date", async (_period, range) => {
-            const data = await API.get(`/reports/profit-loss?start_date=${range.start}&end_date=${range.end}`);
-            const section = (items) => {
-                if (!items.length) return `<tr><td colspan="2" style="color:var(--gray-400);">None</td></tr>`;
-                return items.map(i =>
-                    `<tr><td style="padding-left:24px;">${escapeHtml(i.account_name)}</td><td class="amount">${formatCurrency(Math.abs(i.amount))}</td></tr>`
-                ).join("");
-            };
-            return `
-                <p style="margin-bottom:12px; color:var(--gray-500);">${formatDate(data.start_date)} &mdash; ${formatDate(data.end_date)}</p>
-                <div class="table-container"><table>
-                    <thead><tr><th>Account</th><th class="amount">Amount</th></tr></thead>
-                    <tbody>
-                        <tr><td><strong>Income</strong></td><td></td></tr>
-                        ${section(data.income)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Income</td><td class="amount">${formatCurrency(data.total_income)}</td></tr>
-                        <tr><td><strong>Cost of Goods Sold</strong></td><td></td></tr>
-                        ${section(data.cogs)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Gross Profit</td><td class="amount">${formatCurrency(data.gross_profit)}</td></tr>
-                        <tr><td><strong>Expenses</strong></td><td></td></tr>
-                        ${section(data.expenses)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Expenses</td><td class="amount">${formatCurrency(data.total_expenses)}</td></tr>
-                        <tr style="font-weight:700; font-size:15px; background:var(--primary-light);"><td>Net Income</td><td class="amount">${formatCurrency(data.net_income)}</td></tr>
-                    </tbody>
-                </table></div>`;
+            // Class filter is page-level state so it survives the
+            // period-modal's re-renders on date change.
+            const classFilter = ReportsPage._plClassFilter;
+            const url = `/reports/profit-loss?start_date=${range.start}&end_date=${range.end}` +
+                (classFilter ? `&class_id=${classFilter}` : '');
+            const data = await API.get(url);
+            const home = (data.home_currency || 'USD').toUpperCase();
+
+            const filterHtml = ReportsPage._renderClassFilter(classes, classFilter);
+            if (data.class_id) {
+                // Filtered single-class view (8a) — standard P&L layout.
+                return filterHtml + ReportsPage._renderPLSingle(data, home);
+            }
+            // No filter -> column-per-class breakdown (8b).
+            return filterHtml + ReportsPage._renderPLByClassBreakdown(data, home);
         });
+    },
+
+    _renderClassFilter(classes, selected) {
+        const opts = classes.map(c =>
+            `<option value="${c.id}"${c.id == selected ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
+        ).join('');
+        return `<div style="margin-bottom:8px;">
+            <label style="font-size:11px; font-weight:700;">Class:</label>
+            <select id="pl-class-filter" style="margin-left:6px;" onchange="ReportsPage._setPLClassFilter(this.value)">
+                <option value=""${!selected ? ' selected' : ''}>All classes</option>${opts}
+            </select>
+        </div>`;
+    },
+
+    _setPLClassFilter(val) {
+        ReportsPage._plClassFilter = val;
+        // Re-fire the period-select change so openPeriodModal re-renders with
+        // the new filter applied.
+        const sel = $('#report-period-select');
+        if (sel) sel.dispatchEvent(new Event('change'));
+    },
+
+    _renderPLSingle(data, home) {
+        const section = (items) => {
+            if (!items.length) return `<tr><td colspan="2" style="color:var(--gray-400);">None</td></tr>`;
+            return items.map(i =>
+                `<tr><td style="padding-left:24px;">${escapeHtml(i.account_name)}</td><td class="amount">${formatCurrency(Math.abs(i.amount), home)}</td></tr>`
+            ).join("");
+        };
+        return `
+            <p style="margin-bottom:4px; color:var(--gray-500);">${formatDate(data.start_date)} &mdash; ${formatDate(data.end_date)}</p>
+            <p style="margin-bottom:12px; font-size:11px; color:var(--text-muted);">All amounts in ${escapeHtml(home)} (home currency)</p>
+            <div class="table-container"><table>
+                <thead><tr><th>Account</th><th class="amount">Amount</th></tr></thead>
+                <tbody>
+                    <tr><td><strong>Income</strong></td><td></td></tr>
+                    ${section(data.income)}
+                    <tr style="font-weight:600; background:var(--gray-50);"><td>Total Income</td><td class="amount">${formatCurrency(data.total_income, home)}</td></tr>
+                    <tr><td><strong>Cost of Goods Sold</strong></td><td></td></tr>
+                    ${section(data.cogs)}
+                    <tr style="font-weight:600; background:var(--gray-50);"><td>Gross Profit</td><td class="amount">${formatCurrency(data.gross_profit, home)}</td></tr>
+                    <tr><td><strong>Expenses</strong></td><td></td></tr>
+                    ${section(data.expenses)}
+                    <tr style="font-weight:600; background:var(--gray-50);"><td>Total Expenses</td><td class="amount">${formatCurrency(data.total_expenses, home)}</td></tr>
+                    <tr style="font-weight:700; font-size:15px; background:var(--primary-light);"><td>Net Income</td><td class="amount">${formatCurrency(data.net_income, home)}</td></tr>
+                </tbody>
+            </table></div>`;
+    },
+
+    _renderPLByClassBreakdown(data, home) {
+        // Wide column-per-class layout (8b). Sticky first (Account) and
+        // last (Total) columns; horizontal scroll between. Don't try to fit
+        // visually — let it scroll.
+        const classes = data.classes || [];
+        const stickyLeft = 'position:sticky;left:0;background:var(--bg);z-index:1;';
+        const stickyRight = 'position:sticky;right:0;background:var(--bg);z-index:1;';
+        const renderRow = (row) => {
+            const cells = classes.map(c => {
+                const v = row.by_class[c.id] || row.by_class[String(c.id)] || 0;
+                return `<td class="amount">${v ? formatCurrency(Math.abs(v), home) : ''}</td>`;
+            }).join('');
+            return `<tr>
+                <td style="${stickyLeft}">${escapeHtml(row.account_name)}</td>
+                ${cells}
+                <td class="amount" style="${stickyRight}font-weight:600;">${formatCurrency(Math.abs(row.total), home)}</td>
+            </tr>`;
+        };
+        const headers = classes.map(c =>
+            `<th class="amount">${escapeHtml(c.name)}${c.is_archived ? ' <span style="font-size:9px;">(archived)</span>' : ''}</th>`
+        ).join('');
+        const sectionRows = (rows) => rows.length
+            ? rows.map(renderRow).join('')
+            : `<tr><td colspan="${classes.length + 2}" style="color:var(--gray-400);">None</td></tr>`;
+
+        return `
+            <p style="margin-bottom:4px; color:var(--gray-500);">${formatDate(data.start_date)} &mdash; ${formatDate(data.end_date)}</p>
+            <p style="margin-bottom:12px; font-size:11px; color:var(--text-muted);">All amounts in ${escapeHtml(home)} (home currency) &middot; horizontally scrollable</p>
+            <div class="table-container" style="overflow-x:auto; max-width:100%;">
+                <table style="min-width:max-content;">
+                    <thead><tr>
+                        <th style="${stickyLeft}">Account</th>
+                        ${headers}
+                        <th class="amount" style="${stickyRight}">Total</th>
+                    </tr></thead>
+                    <tbody>
+                        <tr><td style="${stickyLeft}"><strong>Income</strong></td><td colspan="${classes.length + 1}"></td></tr>
+                        ${sectionRows(data.by_class_income || [])}
+                        <tr><td style="${stickyLeft}"><strong>Cost of Goods Sold</strong></td><td colspan="${classes.length + 1}"></td></tr>
+                        ${sectionRows(data.by_class_cogs || [])}
+                        <tr><td style="${stickyLeft}"><strong>Expenses</strong></td><td colspan="${classes.length + 1}"></td></tr>
+                        ${sectionRows(data.by_class_expenses || [])}
+                        <tr style="font-weight:700; background:var(--primary-light);">
+                            <td style="${stickyLeft}background:var(--primary-light);">Net Income</td>
+                            <td colspan="${classes.length}"></td>
+                            <td class="amount" style="${stickyRight}background:var(--primary-light);">${formatCurrency(data.net_income, home)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>`;
+    },
+
+    async profitLossByClass() {
+        // 8c — pick a single class and show its P&L using the same shape
+        // as the standard P&L. Behind the scenes this is the same endpoint
+        // with class_id set, then rendered with _renderPLSingle.
+        const classes = await API.get('/classes');
+        if (classes.length === 0) {
+            openModal('P&L by Class', '<div class="empty-state"><p>No classes defined yet.</p></div>');
+            return;
+        }
+        const opts = classes.map(c =>
+            `<option value="${c.id}">${escapeHtml(c.name)}</option>`
+        ).join('');
+        const renderedPanel = `<div id="plbc-render"></div>`;
+        openModal('P&L by Class', `
+            <div style="margin-bottom:8px;">
+                <label style="font-size:11px; font-weight:700;">Class:</label>
+                <select id="plbc-class-select" style="margin-left:6px;" onchange="ReportsPage._renderPLBC()">${opts}</select>
+            </div>
+            ${renderedPanel}
+        `);
+        ReportsPage._renderPLBC();
+    },
+
+    async _renderPLBC() {
+        const sel = $('#plbc-class-select');
+        if (!sel) return;
+        const cid = sel.value;
+        const className = sel.options[sel.selectedIndex].textContent;
+        const start = new Date().getFullYear() + '-01-01';
+        const end = new Date().toISOString().slice(0, 10);
+        const data = await API.get(`/reports/profit-loss?class_id=${cid}&start_date=${start}&end_date=${end}`);
+        const home = (data.home_currency || 'USD').toUpperCase();
+        const panel = $('#plbc-render');
+        if (panel) {
+            panel.innerHTML = `<h3 style="margin:8px 0;">P&L for ${escapeHtml(className)}</h3>` +
+                ReportsPage._renderPLSingle(data, home);
+        }
     },
 
     async balanceSheet() {
         await ReportsPage.openPeriodModal("Balance Sheet", "this_year_to_date", async (_period, params) => {
             const data = await API.get(`/reports/balance-sheet?as_of_date=${params.as_of_date}`);
+            const home = (data.home_currency || 'USD').toUpperCase();
             const section = (items) => items.map(i =>
-                `<tr><td style="padding-left:24px;">${escapeHtml(i.account_name)}</td><td class="amount">${formatCurrency(Math.abs(i.amount))}</td></tr>`
+                `<tr><td style="padding-left:24px;">${escapeHtml(i.account_name)}</td><td class="amount">${formatCurrency(Math.abs(i.amount), home)}</td></tr>`
             ).join("") || `<tr><td colspan="2" style="color:var(--gray-400);">None</td></tr>`;
             return `
-                <p style="margin-bottom:12px; color:var(--gray-500);">As of ${formatDate(data.as_of_date)}</p>
+                <p style="margin-bottom:4px; color:var(--gray-500);">As of ${formatDate(data.as_of_date)}</p>
+                <p style="margin-bottom:12px; font-size:11px; color:var(--text-muted);">All amounts in ${escapeHtml(home)} (home currency)</p>
                 <div class="table-container"><table>
                     <thead><tr><th>Account</th><th class="amount">Amount</th></tr></thead>
                     <tbody>
                         <tr><td><strong>Assets</strong></td><td></td></tr>
                         ${section(data.assets)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Assets</td><td class="amount">${formatCurrency(data.total_assets)}</td></tr>
+                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Assets</td><td class="amount">${formatCurrency(data.total_assets, home)}</td></tr>
                         <tr><td><strong>Liabilities</strong></td><td></td></tr>
                         ${section(data.liabilities)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Liabilities</td><td class="amount">${formatCurrency(data.total_liabilities)}</td></tr>
+                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Liabilities</td><td class="amount">${formatCurrency(data.total_liabilities, home)}</td></tr>
                         <tr><td><strong>Equity</strong></td><td></td></tr>
                         ${section(data.equity)}
-                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Equity</td><td class="amount">${formatCurrency(data.total_equity)}</td></tr>
+                        <tr style="font-weight:600; background:var(--gray-50);"><td>Total Equity</td><td class="amount">${formatCurrency(data.total_equity, home)}</td></tr>
                     </tbody>
                 </table></div>`;
         }, "As Of", true);

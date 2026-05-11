@@ -39,6 +39,18 @@ from app.models.budgets import Budget
 from app.models.attachments import Attachment
 from app.models.email_templates import EmailTemplate
 
+# Net worth phase 1: ownership + balance snapshots + loan amortization
+from app.models.loans import Loan, LoanAmortizationSchedule
+from app.models.balance_snapshots import BalanceSnapshot
+
+# Phase 1.5: people + account_ownerships join (replaces the legacy
+# alex_pct/alexa_pct/kids_pct columns on accounts; those stay around
+# under dual-write until a follow-up migration drops them).
+from app.models.people import Person, AccountOwnership
+
+# Phase 2: PDF statement ingestion (issue #1).
+from app.models.statement_imports import StatementImport
+
 __all__ = [
     "Account", "Customer", "Vendor", "Item",
     "Transaction", "TransactionLine",
@@ -65,4 +77,10 @@ __all__ = [
     "QBOMapping",
     # Phase 10
     "BankRule", "Budget", "Attachment", "EmailTemplate",
+    # Net worth phase 1
+    "Loan", "LoanAmortizationSchedule", "BalanceSnapshot",
+    # Phase 1.5
+    "Person", "AccountOwnership",
+    # Phase 2: PDF statement ingestion
+    "StatementImport",
 ]

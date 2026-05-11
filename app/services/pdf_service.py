@@ -29,12 +29,20 @@ def _safe_url_fetcher(url, timeout=10, ssl_context=None):
         return default_url_fetcher(url, timeout=timeout, ssl_context=ssl_context)
     raise ValueError(f"URL scheme not allowed in PDF templates: {url!r}")
 
-def _format_currency(value):
+_CURRENCY_SYMBOLS = {"USD": "$", "CAD": "CA$", "EUR": "€", "GBP": "£"}
+
+
+def _format_currency(value, code: str = "USD"):
+    """Format `value` as currency. Optional `code` selects the symbol so
+    multi-currency invoices render with the right glyph. Falls back to the
+    raw 3-letter code prefix if we don't have a symbol mapped."""
+    code = (code or "USD").upper()
+    symbol = _CURRENCY_SYMBOLS.get(code, code + " ")
     try:
         v = float(value or 0)
-        return f"${v:,.2f}"
+        return f"{symbol}{v:,.2f}"
     except (TypeError, ValueError):
-        return "$0.00"
+        return f"{symbol}0.00"
 
 
 def _format_date(value):
