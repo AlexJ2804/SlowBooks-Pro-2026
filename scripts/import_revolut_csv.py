@@ -27,9 +27,11 @@ Rules:
   * Skip rows where Amount is missing or non-numeric
   * Include the fee as a separate negative row when Fee > 0, so the
     register matches what hit the account
-  * Dedup on (date, signed amount, normalised description, currency) —
-    same key the PDF importer uses, with currency added so a CZK 50 and
-    a EUR 50 charge on the same day stay distinct
+  * Dedup on a stable per-row import_id that includes the full Started
+    Date (HH:MM:SS) so recurring same-day, same-amount, same-description
+    pocket transfers (e.g. "Revpoints Spare change", "To EUR The Big
+    Move") aren't collapsed. The earlier (date, amount, desc[:40],
+    currency) key dropped ~600 distinct rows on a long history.
 
 Usage:
     docker exec slowbooks-pro-2026-slowbooks-1 \\
@@ -43,6 +45,7 @@ The CSV needs to be readable from inside the container. Copy with:
 
 import argparse
 import csv
+import hashlib
 import re
 import sys
 from datetime import datetime
@@ -55,6 +58,7 @@ from app.models.banking import BankAccount, BankTransaction
 
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]")
+_DIGITS_RE = re.compile(r"\D")
 _DEDUP_DESC_LEN = 40
 
 
@@ -64,9 +68,33 @@ def _normalize_description(desc: str) -> str:
     return _NON_ALNUM_RE.sub("", desc.lower())[:_DEDUP_DESC_LEN]
 
 
-def _dedup_key(tx_date, amount: float, description: str, currency: str) -> tuple:
-    ccy = (currency or "").upper() or None
-    return (tx_date, f"{float(amount):.2f}", _normalize_description(description), ccy)
+def _started_stamp(started: str, completed: str) -> str:
+    # Compact 'YYYYMMDDHHMMSS'. Started Date is per-row unique on Revolut
+    # exports (it's the user-action timestamp). Fall back to Completed
+    # Date if Started is blank.
+    raw = (started or completed or "").strip()
+    digits = _DIGITS_RE.sub("", raw)[:14]
+    return digits.ljust(14, "0")
+
+
+def _make_import_id(started: str, completed: str, amount: float, currency: str,
+                    description: str, balance: str, *, fee: bool = False) -> str:
+    # Content-addressed fingerprint: same real-world row → same id across
+    # re-exports. Includes the running Balance because Revolut routinely
+    # emits multiple distinct rows that share Started Date / Amount /
+    # Currency / Description (batched refunds, pocket closures booked in
+    # the same second). Balance is unique per real movement, so it
+    # disambiguates them without breaking re-import idempotency.
+    stamp = _started_stamp(started, completed)
+    desc_hash = hashlib.sha1(_normalize_description(description).encode("utf-8")).hexdigest()[:8]
+    bal = (balance or "").strip().replace(",", "") or "0"
+    try:
+        bal_norm = f"{float(bal):+.2f}"
+    except ValueError:
+        bal_norm = bal[:16]
+    ccy = (currency or "").upper()
+    tag = "fee" if fee else "tx"
+    return f"revolut:{stamp}:{tag}:{amount:+.2f}:{ccy}:{desc_hash}:{bal_norm}"
 
 
 def _parse_date(s: str):
@@ -122,20 +150,19 @@ def main() -> int:
               f"(linked to COA id={ba.account_id})")
         print()
 
-        # Pre-load every existing row's dedup key for this account.
+        # Pre-load existing revolut_csv import_ids for this account. We
+        # dedup by import_id (content-addressed) so re-imports are
+        # idempotent without colliding distinct same-day rows.
         existing = {
-            _dedup_key(r.date, float(r.amount), r.description or r.payee, r.currency)
-            for r in (
-                db.query(
-                    BankTransaction.date, BankTransaction.amount,
-                    BankTransaction.description, BankTransaction.payee,
-                    BankTransaction.currency,
-                )
+            r[0] for r in (
+                db.query(BankTransaction.import_id)
                 .filter(BankTransaction.bank_account_id == ba.id)
+                .filter(BankTransaction.import_source == "revolut_csv")
+                .filter(BankTransaction.import_id.isnot(None))
                 .all()
             )
         }
-        print(f"Loaded {len(existing)} existing fingerprints for dedup")
+        print(f"Loaded {len(existing)} existing revolut_csv import_ids for dedup")
 
         created = 0
         dups = 0
@@ -166,6 +193,9 @@ def main() -> int:
                 description = (row.get("Description") or "").strip()
                 row_type = (row.get("Type") or "").strip()
                 product = (row.get("Product") or "").strip()
+                started_raw = (row.get("Started Date") or "").strip()
+                completed_raw = (row.get("Completed Date") or "").strip()
+                balance_raw = (row.get("Balance") or "").strip()
 
                 # Compose a richer description so the register shows the
                 # Type + Product context (Revolut's Description alone
@@ -176,8 +206,9 @@ def main() -> int:
                 if product and product.lower() not in full_desc.lower():
                     full_desc = f"{full_desc} ({product})".strip()
 
-                key = _dedup_key(tx_date, amount, full_desc, currency)
-                if key in existing:
+                import_id = _make_import_id(started_raw, completed_raw, amount,
+                                            currency, full_desc, balance_raw)
+                if import_id in existing:
                     dups += 1
                     continue
 
@@ -188,12 +219,12 @@ def main() -> int:
                     payee=full_desc[:200],
                     description=full_desc,
                     currency=currency,
-                    import_id=f"revolut:{idx}:{tx_date.isoformat()}:{amount:.2f}:{(currency or '')}",
+                    import_id=import_id,
                     import_source="revolut_csv",
                     match_status="unmatched",
                 )
                 db.add(bt)
-                existing.add(key)
+                existing.add(import_id)
                 created += 1
                 per_currency[currency or "?"] = per_currency.get(currency or "?", 0) + 1
 
@@ -204,8 +235,10 @@ def main() -> int:
                 fee = _parse_amount(row.get("Fee"))
                 if args.include_fees and fee is not None and fee != 0:
                     fee_desc = f"Fee for {full_desc[:120]}"
-                    fee_key = _dedup_key(tx_date, -abs(fee), fee_desc, currency)
-                    if fee_key not in existing:
+                    fee_id = _make_import_id(started_raw, completed_raw,
+                                             -abs(fee), currency, fee_desc,
+                                             balance_raw, fee=True)
+                    if fee_id not in existing:
                         db.add(BankTransaction(
                             bank_account_id=ba.id,
                             date=tx_date,
@@ -213,11 +246,11 @@ def main() -> int:
                             payee=fee_desc[:200],
                             description=fee_desc,
                             currency=currency,
-                            import_id=f"revolut:{idx}:fee:{tx_date.isoformat()}:{abs(fee):.2f}:{(currency or '')}",
+                            import_id=fee_id,
                             import_source="revolut_csv",
                             match_status="unmatched",
                         ))
-                        existing.add(fee_key)
+                        existing.add(fee_id)
                         fee_rows += 1
                         per_currency[currency or "?"] = per_currency.get(currency or "?", 0) + 1
 
