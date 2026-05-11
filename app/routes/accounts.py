@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -147,6 +148,13 @@ def _to_response(account: Account, latest: BalanceSnapshot = None) -> AccountRes
     that want efficient list rendering should joinedload(ownerships)
     upstream to avoid N+1.
     """
+    # accounts.balance is nullable in the schema (legacy: pre-net-worth
+    # the column wasn't always populated). AccountResponse.balance is
+    # strict-Decimal, so a single NULL row crashes the whole listing.
+    # Coerce here defensively — semantically 'no balance recorded' is
+    # zero for the chart-of-accounts purposes the column serves now.
+    if account.balance is None:
+        account.balance = Decimal("0")
     resp = AccountResponse.model_validate(account)
     if latest is not None:
         resp.latest_balance = latest.balance
