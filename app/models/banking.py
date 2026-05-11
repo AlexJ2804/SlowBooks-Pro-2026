@@ -61,8 +61,14 @@ class BankTransaction(Base):
 
     # OFX/QFX import fields (Feature 18)
     import_id = Column(String(100), nullable=True)      # OFX FITID for dedup
-    import_source = Column(String(50), nullable=True)    # e.g. "ofx", "qfx", "pdf"
+    import_source = Column(String(50), nullable=True)    # e.g. "ofx", "qfx", "pdf", "revolut_csv"
     match_status = Column(String(20), nullable=True)     # "auto", "manual", "unmatched"
+
+    # Per-row currency for multi-ccy accounts (Revolut etc.). NULL means
+    # "the parent bank_account's native currency" — preserves backward-
+    # compat for single-currency imports. Joins the dedup fingerprint
+    # so CZK 50 and EUR 50 on the same day don't collapse.
+    currency = Column(String(3), nullable=True)
 
     # Phase 2: drill-back to the source PDF statement (issue #1).
     # Nullable because OFX/QFX imports and manual entries don't have one.

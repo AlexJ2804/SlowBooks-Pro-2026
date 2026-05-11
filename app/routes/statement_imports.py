@@ -76,9 +76,15 @@ def _normalize_description(desc: Optional[str]) -> str:
     return _NON_ALNUM_RE.sub("", desc.lower())[:_DEDUP_DESC_LEN]
 
 
-def _dedup_key(tx_date, amount: float, description: Optional[str]) -> tuple:
-    # Two-decimal string so float drift doesn't break equality.
-    return (tx_date, f"{float(amount):.2f}", _normalize_description(description))
+def _dedup_key(tx_date, amount: float, description: Optional[str],
+               currency: Optional[str] = None) -> tuple:
+    # Two-decimal string so float drift doesn't break equality. Currency
+    # joins the fingerprint so a CZK 50 charge and a EUR 50 charge on
+    # the same day with the same description (rare but possible on
+    # Revolut) stay distinct. NULL currency is treated as a literal
+    # NULL — must match exactly with the stored value's NULL-ness.
+    ccy = (currency or "").upper() or None
+    return (tx_date, f"{float(amount):.2f}", _normalize_description(description), ccy)
 
 
 def _upsert_snapshot_from_statement(db: Session, si: StatementImport, parsed: dict) -> bool:
@@ -401,13 +407,15 @@ def post_import(import_id: int, db: Session = Depends(get_db)):
     # composite index on (bank_account_id, date, amount) if it stops
     # being.
     existing_keys = {
-        _dedup_key(row.date, float(row.amount), row.description or row.payee)
+        _dedup_key(row.date, float(row.amount),
+                   row.description or row.payee, row.currency)
         for row in (
             db.query(
                 BankTransaction.date,
                 BankTransaction.amount,
                 BankTransaction.description,
                 BankTransaction.payee,
+                BankTransaction.currency,
             )
             .filter(BankTransaction.bank_account_id == si.bank_account_id)
             .all()
