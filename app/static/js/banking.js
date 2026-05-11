@@ -21,11 +21,23 @@ const BankingPage = {
         } else {
             html += `<div class="card-grid">`;
             for (const ba of accounts) {
+                // Render the latest balance_snapshot — same number Net
+                // Worth shows. bank_accounts.balance is a legacy column
+                // that's never updated past 0 at INSERT time, so we
+                // ignore it. Accounts with no snapshot yet (e.g. a
+                // freshly-linked bank with no balance entered) get an
+                // em-dash placeholder so the user can tell at a glance.
+                const valueDisplay = (ba.latest_balance != null)
+                    ? formatCurrency(ba.latest_balance, ba.currency)
+                    : '—';
+                const asOfHint = ba.latest_balance_as_of
+                    ? ` as of ${formatDate(ba.latest_balance_as_of)}`
+                    : '';
                 html += `<div class="card" style="cursor:pointer" onclick="BankingPage.viewRegister(${ba.id})">
                     <div class="card-header">${escapeHtml(ba.name)}</div>
-                    <div class="card-value">${formatCurrency(ba.balance)}</div>
+                    <div class="card-value">${valueDisplay}</div>
                     <div style="font-size:12px; color:var(--gray-400); margin-top:4px;">
-                        ${escapeHtml(ba.bank_name || '')} ${ba.last_four ? '****' + ba.last_four : ''}
+                        ${escapeHtml(ba.bank_name || '')} ${ba.last_four ? '****' + ba.last_four : ''}${asOfHint ? `<br>${escapeHtml(asOfHint.trim())}` : ''}
                     </div>
                 </div>`;
             }
@@ -51,8 +63,8 @@ const BankingPage = {
                 </div>
             </div>
             <div class="card" style="margin-bottom:16px;">
-                <div class="card-header">Current Balance</div>
-                <div class="card-value">${formatCurrency(ba.balance)}</div>
+                <div class="card-header">Current Balance${ba.latest_balance_as_of ? ` <span style="font-size:11px; font-weight:normal; color:var(--gray-400);">as of ${formatDate(ba.latest_balance_as_of)}</span>` : ''}</div>
+                <div class="card-value">${ba.latest_balance != null ? formatCurrency(ba.latest_balance, ba.currency) : '—'}</div>
             </div>`;
 
         if (txns.length === 0) {

@@ -10,9 +10,10 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func as sqlfunc
+from sqlalchemy import and_, func as sqlfunc
 
 from app.database import get_db
+from app.models.balance_snapshots import BalanceSnapshot
 from app.models.banking import BankAccount, BankTransaction, Reconciliation, ReconciliationStatus
 from app.schemas.banking import (
     BankAccountCreate, BankAccountUpdate, BankAccountResponse,
@@ -24,18 +25,76 @@ from app.services.closing_date import check_closing_date
 router = APIRouter(prefix="/api/banking", tags=["banking"])
 
 
+def _latest_snapshots_by_aid(db: Session) -> dict:
+    """{accounts.id: BalanceSnapshot} for the most-recent snapshot per
+    linked COA account. Mirrors the Net Worth dashboard's reader so the
+    two pages can't drift on what counts as "current balance"."""
+    latest_dates = (
+        db.query(
+            BalanceSnapshot.account_id.label("aid"),
+            sqlfunc.max(BalanceSnapshot.as_of_date).label("max_date"),
+        )
+        .group_by(BalanceSnapshot.account_id)
+        .subquery()
+    )
+    rows = (
+        db.query(BalanceSnapshot)
+        .join(latest_dates, and_(
+            BalanceSnapshot.account_id == latest_dates.c.aid,
+            BalanceSnapshot.as_of_date == latest_dates.c.max_date,
+        ))
+        .all()
+    )
+    return {r.account_id: r for r in rows}
+
+
+def _serialize_bank_account(ba: BankAccount, snap: BalanceSnapshot | None) -> dict:
+    """Match the legacy BankAccountResponse shape and add the snapshot
+    fields the UI now reads. bank_accounts.balance stays in the payload
+    because other code may still consume it; it just isn't rendered."""
+    return {
+        "id": ba.id,
+        "name": ba.name,
+        "account_id": ba.account_id,
+        "bank_name": ba.bank_name,
+        "last_four": ba.last_four,
+        "balance": float(ba.balance) if ba.balance is not None else 0.0,
+        "is_active": ba.is_active,
+        "created_at": ba.created_at.isoformat() if ba.created_at else None,
+        "updated_at": ba.updated_at.isoformat() if ba.updated_at else None,
+        "latest_balance": float(snap.balance) if snap else None,
+        "latest_balance_as_of": snap.as_of_date.isoformat() if snap else None,
+        "currency": snap.currency if snap else None,
+    }
+
+
 # Bank Accounts
-@router.get("/accounts", response_model=list[BankAccountResponse])
+@router.get("/accounts")
 def list_bank_accounts(db: Session = Depends(get_db)):
-    return db.query(BankAccount).filter(BankAccount.is_active == True).order_by(BankAccount.name).all()
+    accounts = (
+        db.query(BankAccount)
+        .filter(BankAccount.is_active == True)
+        .order_by(BankAccount.name)
+        .all()
+    )
+    snapshots = _latest_snapshots_by_aid(db)
+    return [_serialize_bank_account(ba, snapshots.get(ba.account_id)) for ba in accounts]
 
 
-@router.get("/accounts/{account_id}", response_model=BankAccountResponse)
+@router.get("/accounts/{account_id}")
 def get_bank_account(account_id: int, db: Session = Depends(get_db)):
     ba = db.query(BankAccount).filter(BankAccount.id == account_id).first()
     if not ba:
         raise HTTPException(status_code=404, detail="Bank account not found")
-    return ba
+    snap = None
+    if ba.account_id is not None:
+        snap = (
+            db.query(BalanceSnapshot)
+            .filter(BalanceSnapshot.account_id == ba.account_id)
+            .order_by(BalanceSnapshot.as_of_date.desc())
+            .first()
+        )
+    return _serialize_bank_account(ba, snap)
 
 
 @router.post("/accounts", response_model=BankAccountResponse, status_code=201)
