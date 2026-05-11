@@ -1,27 +1,38 @@
 """Seed personal / household expense categories alongside the QB business COA.
 
-The default chart shipped with Slowbooks is QuickBooks' standard business
-chart (Advertising & Marketing, Auto Expense, Bank Fees, etc. in the 6000
-range). Once you start using the app for personal/household bookkeeping
-too — pulling in Amex, Citi, HCU, Revolut imports — most of your real
-spending doesn't fit into those buckets. This seed adds a personal chart
-in the 7000 range so the categorize loop (/#/categorize) has somewhere
-to put a Walmart grocery run or a Luas tram fare.
+The default chart shipped with Slowbooks is QuickBooks' standard
+business chart (Advertising & Marketing, Auto Expense, Bank Fees, etc.
+in the 6000 range). Once you start pulling Amex / Citi / HCU / Revolut
+imports through the categorize loop, most personal spending —
+groceries, restaurants, gym, kids — doesn't fit into those buckets.
+This seed adds a parallel personal chart in the 7000 range plus a
+"Transfer:" prefixed pseudo-category set for non-expense movements.
 
-Idempotent: re-running skips any account whose name already exists.
-Pure-Python, mirrors scripts/seed_personal_accounts.py style.
+Each row carries the `account_kind` tag that became legal in alembic
+q9h0i1j2k3l4. The categorize page groups its dropdown by kind so
+personal vs business vs transfer reads at a glance, and the spending
+dashboard uses `account_kind != 'transfer'` to keep transfers out of
+the "where did our money go" donut total.
+
+Idempotent: re-running upserts on (name). If a row already exists
+(e.g. created by the earlier kind-less version of this seed), this
+re-run patches its account_number and account_kind so existing data
+ends up tagged correctly without having to drop and re-insert.
 
 Numbering scheme:
-  6000-6999  business expense (existing, untouched by this seed)
-  7000-7799  personal expense categories (new — added by this seed)
-  7800-7899  income categories (new)
-  7900-7999  transfer / non-expense pseudo-categories (new)
-
-Transfer pseudo-categories are still account_type=EXPENSE because that
-is what the categorize UI surfaces; their distinguishing feature is the
-account_number being in the 7900-7999 range and a "Transfer:" prefix
-in the name. A follow-up spending-dashboard PR will teach the donut to
-exclude this range from the "where did our money go" total.
+  6000-6999  business expense (existing QB defaults, untouched by this
+             seed but backfilled with account_kind='business_expense'
+             by alembic q9h0i1j2k3l4)
+  7000-7099  food
+  7100-7199  home & utilities (personal)
+  7200-7299  health & wellness
+  7300-7399  personal care & shopping
+  7400-7499  transportation
+  7500-7599  travel
+  7600-7699  entertainment & lifestyle
+  7700-7799  kids, pets, gifts, donations
+  7800-7899  personal income (paychecks etc.)
+  7900-7999  transfer pseudo-categories (kind='transfer')
 
 Run:
     docker exec slowbooks-pro-2026-slowbooks-1 \\
@@ -37,100 +48,113 @@ from app.database import SessionLocal
 from app.models.accounts import Account, AccountType
 
 
-# (account_number, name, account_type)
+# (account_number, name, account_type, account_kind)
 # Names chosen to match what people actually call these line items, not
 # what an accountant calls them — "Coffee & Cafés" not "Beverages, Hot,
 # Vendor Class 4". The categorize LLM matches better on natural names.
-_PERSONAL_EXPENSES = [
+_PERSONAL_CATEGORIES = [
     # 7000-7099 Food
-    ("7000", "Groceries",                          AccountType.EXPENSE),
-    ("7010", "Restaurants & Dining",               AccountType.EXPENSE),
-    ("7020", "Coffee & Cafés",                     AccountType.EXPENSE),
-    ("7030", "Takeout & Delivery",                 AccountType.EXPENSE),
-    ("7040", "Alcohol",                            AccountType.EXPENSE),
+    ("7000", "Groceries",                          AccountType.EXPENSE, "personal_expense"),
+    ("7010", "Restaurants & Dining",               AccountType.EXPENSE, "personal_expense"),
+    ("7020", "Coffee & Cafés",                     AccountType.EXPENSE, "personal_expense"),
+    ("7030", "Takeout & Delivery",                 AccountType.EXPENSE, "personal_expense"),
+    ("7040", "Alcohol",                            AccountType.EXPENSE, "personal_expense"),
 
     # 7100-7199 Home & utilities (personal)
-    ("7100", "Utilities (Personal)",               AccountType.EXPENSE),
-    ("7110", "Internet & Phone (Personal)",        AccountType.EXPENSE),
-    ("7120", "Home Maintenance",                   AccountType.EXPENSE),
-    ("7130", "Furniture & Furnishings",            AccountType.EXPENSE),
-    ("7140", "Household Supplies",                 AccountType.EXPENSE),
+    ("7100", "Utilities (Personal)",               AccountType.EXPENSE, "personal_expense"),
+    ("7110", "Internet & Phone (Personal)",        AccountType.EXPENSE, "personal_expense"),
+    ("7120", "Home Maintenance",                   AccountType.EXPENSE, "personal_expense"),
+    ("7130", "Furniture & Furnishings",            AccountType.EXPENSE, "personal_expense"),
+    ("7140", "Household Supplies",                 AccountType.EXPENSE, "personal_expense"),
 
     # 7200-7299 Health & wellness
-    ("7200", "Healthcare & Medical",               AccountType.EXPENSE),
-    ("7210", "Pharmacy",                           AccountType.EXPENSE),
-    ("7220", "Dental & Vision",                    AccountType.EXPENSE),
-    ("7230", "Gym & Fitness",                      AccountType.EXPENSE),
+    ("7200", "Healthcare & Medical",               AccountType.EXPENSE, "personal_expense"),
+    ("7210", "Pharmacy",                           AccountType.EXPENSE, "personal_expense"),
+    ("7220", "Dental & Vision",                    AccountType.EXPENSE, "personal_expense"),
+    ("7230", "Gym & Fitness",                      AccountType.EXPENSE, "personal_expense"),
 
     # 7300-7399 Personal care & shopping
-    ("7300", "Personal Care",                      AccountType.EXPENSE),
-    ("7310", "Clothing & Apparel",                 AccountType.EXPENSE),
-    ("7320", "Shopping (Misc)",                    AccountType.EXPENSE),
+    ("7300", "Personal Care",                      AccountType.EXPENSE, "personal_expense"),
+    ("7310", "Clothing & Apparel",                 AccountType.EXPENSE, "personal_expense"),
+    ("7320", "Shopping (Misc)",                    AccountType.EXPENSE, "personal_expense"),
 
     # 7400-7499 Transportation
-    ("7400", "Auto Fuel",                          AccountType.EXPENSE),
-    ("7410", "Auto Maintenance",                   AccountType.EXPENSE),
-    ("7420", "Parking & Tolls",                    AccountType.EXPENSE),
-    ("7430", "Public Transit",                     AccountType.EXPENSE),
-    ("7440", "Rideshare & Taxi",                   AccountType.EXPENSE),
+    ("7400", "Auto Fuel",                          AccountType.EXPENSE, "personal_expense"),
+    ("7410", "Auto Maintenance",                   AccountType.EXPENSE, "personal_expense"),
+    ("7420", "Parking & Tolls",                    AccountType.EXPENSE, "personal_expense"),
+    ("7430", "Public Transit",                     AccountType.EXPENSE, "personal_expense"),
+    ("7440", "Rideshare & Taxi",                   AccountType.EXPENSE, "personal_expense"),
 
     # 7500-7599 Travel
-    ("7500", "Travel — Lodging",                   AccountType.EXPENSE),
-    ("7510", "Travel — Air & Rail",                AccountType.EXPENSE),
-    ("7520", "Travel — Other",                     AccountType.EXPENSE),
+    ("7500", "Travel — Lodging",                   AccountType.EXPENSE, "personal_expense"),
+    ("7510", "Travel — Air & Rail",                AccountType.EXPENSE, "personal_expense"),
+    ("7520", "Travel — Other",                     AccountType.EXPENSE, "personal_expense"),
 
     # 7600-7699 Entertainment & lifestyle
-    ("7600", "Entertainment",                      AccountType.EXPENSE),
-    ("7610", "Streaming Subscriptions",            AccountType.EXPENSE),
-    ("7620", "Software & Apps (Personal)",         AccountType.EXPENSE),
-    ("7630", "Memberships & Dues",                 AccountType.EXPENSE),
-    ("7640", "Books & Media",                      AccountType.EXPENSE),
-    ("7650", "Hobbies",                            AccountType.EXPENSE),
+    ("7600", "Entertainment",                      AccountType.EXPENSE, "personal_expense"),
+    ("7610", "Streaming Subscriptions",            AccountType.EXPENSE, "personal_expense"),
+    ("7620", "Software & Apps (Personal)",         AccountType.EXPENSE, "personal_expense"),
+    ("7630", "Memberships & Dues",                 AccountType.EXPENSE, "personal_expense"),
+    ("7640", "Books & Media",                      AccountType.EXPENSE, "personal_expense"),
+    ("7650", "Hobbies",                            AccountType.EXPENSE, "personal_expense"),
 
     # 7700-7799 Kids, pets, gifts, donations
-    ("7700", "Kids & Childcare",                   AccountType.EXPENSE),
-    ("7710", "Education & School",                 AccountType.EXPENSE),
-    ("7720", "Kids' Activities",                   AccountType.EXPENSE),
-    ("7730", "Pet Care",                           AccountType.EXPENSE),
-    ("7740", "Gifts",                              AccountType.EXPENSE),
-    ("7750", "Charity & Donations",                AccountType.EXPENSE),
+    ("7700", "Kids & Childcare",                   AccountType.EXPENSE, "personal_expense"),
+    ("7710", "Education & School",                 AccountType.EXPENSE, "personal_expense"),
+    ("7720", "Kids' Activities",                   AccountType.EXPENSE, "personal_expense"),
+    ("7730", "Pet Care",                           AccountType.EXPENSE, "personal_expense"),
+    ("7740", "Gifts",                              AccountType.EXPENSE, "personal_expense"),
+    ("7750", "Charity & Donations",                AccountType.EXPENSE, "personal_expense"),
 
-    # 7800-7899 Personal income lines (paychecks etc.)
-    ("7800", "Salary & Wages",                     AccountType.INCOME),
-    ("7810", "Bonus & Commission",                 AccountType.INCOME),
-    ("7820", "Investment Income (Personal)",       AccountType.INCOME),
-    ("7830", "Reimbursements & Refunds",           AccountType.INCOME),
-    ("7840", "Other Personal Income",              AccountType.INCOME),
+    # 7800-7899 Personal income
+    ("7800", "Salary & Wages",                     AccountType.INCOME,  "personal_income"),
+    ("7810", "Bonus & Commission",                 AccountType.INCOME,  "personal_income"),
+    ("7820", "Investment Income (Personal)",       AccountType.INCOME,  "personal_income"),
+    ("7830", "Reimbursements & Refunds",           AccountType.INCOME,  "personal_income"),
+    ("7840", "Other Personal Income",              AccountType.INCOME,  "personal_income"),
 
     # 7900-7999 Transfer / non-expense pseudo-categories.
-    # Labelled with a "Transfer:" prefix so they read as obviously-not-
-    # spending in the categorize dropdown and the merchant register.
-    # The spending dashboard will eventually exclude account_number 7900+
-    # from the "where did our money go" donut.
-    ("7900", "Transfer: Between Household Accounts", AccountType.EXPENSE),
-    ("7910", "Transfer: Credit Card Payment",      AccountType.EXPENSE),
-    ("7920", "Transfer: Currency Exchange",        AccountType.EXPENSE),
-    ("7930", "Transfer: Account Top-up / Funding", AccountType.EXPENSE),
+    # account_type stays EXPENSE because that's what the categorize UI
+    # filters to surface. account_kind='transfer' is the marker the
+    # spending dashboard reads to exclude these from spend totals.
+    ("7900", "Transfer: Between Household Accounts", AccountType.EXPENSE, "transfer"),
+    ("7910", "Transfer: Credit Card Payment",        AccountType.EXPENSE, "transfer"),
+    ("7920", "Transfer: Currency Exchange",          AccountType.EXPENSE, "transfer"),
+    ("7930", "Transfer: Account Top-up / Funding",   AccountType.EXPENSE, "transfer"),
 ]
 
 
 def apply_seed(db) -> dict:
-    """Insert any missing rows from _PERSONAL_EXPENSES.
+    """Upsert any missing rows from _PERSONAL_CATEGORIES.
 
-    Idempotent on (name) — re-running skips rows whose name already
-    exists, so this is safe to wire into a deploy hook.
+    Idempotent on (name) — re-running:
+      * creates rows that don't exist
+      * patches account_number / account_kind on rows that already
+        exist but came in untagged (e.g. seeded by an earlier
+        kind-less version of this script)
+      * leaves rows alone if they're already in the desired shape
     """
-    counts = {"created": 0, "skipped": 0}
-    for account_number, name, acct_type in _PERSONAL_EXPENSES:
+    counts = {"created": 0, "updated": 0, "skipped": 0}
+    for account_number, name, acct_type, kind in _PERSONAL_CATEGORIES:
         existing = db.query(Account).filter(Account.name == name).first()
         if existing:
-            counts["skipped"] += 1
+            changed = False
+            if not existing.account_number:
+                existing.account_number = account_number
+                changed = True
+            if existing.account_kind != kind:
+                existing.account_kind = kind
+                changed = True
+            if existing.account_type != acct_type:
+                existing.account_type = acct_type
+                changed = True
+            counts["updated" if changed else "skipped"] += 1
             continue
         db.add(Account(
             name=name,
             account_number=account_number,
             account_type=acct_type,
-            account_kind=None,
+            account_kind=kind,
             update_strategy=None,
             currency="USD",
             alex_pct=0,
@@ -156,14 +180,15 @@ def seed():
     finally:
         db.close()
 
-    print(f"Personal expense / income categories: created={counts['created']}, "
-          f"skipped (already existed)={counts['skipped']}")
-    total = len(_PERSONAL_EXPENSES)
+    print(f"Personal categories: created={counts['created']}, "
+          f"updated (tagged with kind/number)={counts['updated']}, "
+          f"unchanged={counts['skipped']}")
+    total = len(_PERSONAL_CATEGORIES)
     print(f"Targeted {total} categories; "
-          f"final state has {counts['created'] + counts['skipped']} of them present.")
+          f"final state has {counts['created'] + counts['updated'] + counts['skipped']} of them present.")
     print()
-    print("Next: open /#/categorize and re-run 'Suggest categories with AI' —")
-    print("Haiku now has personal categories to map merchants onto.")
+    print("Next: open /#/categorize — the dropdown is grouped by kind so")
+    print("personal vs business vs transfer reads at a glance.")
 
 
 if __name__ == "__main__":

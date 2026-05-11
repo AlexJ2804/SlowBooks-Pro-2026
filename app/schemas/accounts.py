@@ -9,10 +9,23 @@ from app.schemas.people import OwnershipShareIn, OwnershipShareOut
 
 
 # Net worth phase 1 — accepted account_kind values, mirrored from the
-# DB CHECK constraint in alembic h0e1f2a3b4c5. Kept here so the API
-# layer can reject bad input before it hits the DB and produces a
-# generic constraint-violation 500.
-_VALID_ACCOUNT_KINDS = {"bank", "credit_card", "brokerage", "retirement", "property", "loan"}
+# DB CHECK constraint in alembic h0e1f2a3b4c5 + q9h0i1j2k3l4.
+# Kept here so the API layer can reject bad input before it hits the DB
+# and produces a generic constraint-violation 500.
+#
+# Phase 3 added P&L sub-types: personal_expense, business_expense,
+# personal_income, business_income, transfer. The 'transfer' kind tags
+# non-expense pseudo-categories (CC payments, currency exchange,
+# account top-ups) so the spending dashboard can leave them out of
+# "where did our money go" totals.
+_VALID_ACCOUNT_KINDS = {
+    # Balance-sheet sub-types (net-worth phase 1)
+    "bank", "credit_card", "brokerage", "retirement", "property", "loan",
+    # P&L sub-types (phase 3)
+    "personal_expense", "business_expense",
+    "personal_income",  "business_income",
+    "transfer",
+}
 _VALID_UPDATE_STRATEGIES = {"transactional", "balance_only"}
 
 
