@@ -12,6 +12,11 @@ from app.models.invoices import Invoice, InvoiceStatus
 from app.models.payments import Payment
 from app.models.contacts import Customer
 from app.models.banking import BankAccount
+<<<<<<< ours
+=======
+from app.models.accounts import Account, AccountType
+from app.models.transactions import Transaction, TransactionLine
+>>>>>>> theirs
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -158,7 +163,12 @@ def get_dashboard_charts(db: Session = Depends(get_db)):
         else:
             aging_90 += inv.balance_due
 
-    # Monthly revenue — last 12 months
+    # Monthly revenue — last 12 months, sourced from the general ledger.
+    # Sums credits to any account_type='INCOME' line, so W-2 deposits,
+    # paychecks, journal-entered consulting income, etc. all show up
+    # alongside customer invoices. (Previously summed Invoice.total only,
+    # which made non-invoice income invisible — see ledger as the source
+    # of truth.)
     monthly_revenue = []
     for i in range(11, -1, -1):
         year = today.year
@@ -170,10 +180,15 @@ def get_dashboard_charts(db: Session = Depends(get_db)):
         start = date(year, month, 1)
         end = date(year, month, last_day)
 
-        total = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
-            Invoice.date >= start, Invoice.date <= end,
-            Invoice.status != InvoiceStatus.VOID,
-        ).scalar()
+        total = (
+            db.query(func.coalesce(func.sum(TransactionLine.credit), 0))
+            .join(Transaction, TransactionLine.transaction_id == Transaction.id)
+            .join(Account, Account.id == TransactionLine.account_id)
+            .filter(Transaction.date >= start)
+            .filter(Transaction.date <= end)
+            .filter(Account.account_type == AccountType.INCOME)
+            .scalar()
+        )
 
         monthly_revenue.append({
             "month": start.strftime("%b"),
