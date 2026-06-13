@@ -51,6 +51,9 @@ from app.models.people import Person, AccountOwnership
 # Phase 2: PDF statement ingestion (issue #1).
 from app.models.statement_imports import StatementImport
 
+# Budgeting (Phase 1, Task 1B): pay sources + sinking funds + goals.
+from app.models.budgeting import PaySource, SinkingFund, Goal, PayCadence
+
 __all__ = [
     "Account", "Customer", "Vendor", "Item",
     "Transaction", "TransactionLine",
@@ -83,4 +86,6 @@ __all__ = [
     "Person", "AccountOwnership",
     # Phase 2: PDF statement ingestion
     "StatementImport",
+    # Budgeting (Phase 1, Task 1B)
+    "PaySource", "SinkingFund", "Goal", "PayCadence",
 ]

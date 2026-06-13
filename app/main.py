@@ -76,6 +76,8 @@ from app.routes import scheduled_import as scheduled_import_route
 from app.routes import statement_imports as statement_imports_route
 # Phase 3: Spending analytics (monthly trend + category breakdown).
 from app.routes import spending as spending_route
+# Budgeting (Phase 1, Task 1B): pay sources + sinking funds + goals + plan.
+from app.routes import budgeting as budgeting_route
 
 from app.config import CORS_ALLOW_ORIGINS
 from app.database import SessionLocal
@@ -164,6 +166,11 @@ app.include_router(scheduled_import_route.router)
 app.include_router(statement_imports_route.router)
 # Phase 3: Spending analytics
 app.include_router(spending_route.router)
+# Budgeting (Phase 1, Task 1B): four routers in one module.
+app.include_router(budgeting_route.pay_sources_router)
+app.include_router(budgeting_route.sinking_funds_router)
+app.include_router(budgeting_route.goals_router)
+app.include_router(budgeting_route.plan_router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)
