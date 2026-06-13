@@ -1,3 +1,10 @@
-# Ensure shell scripts always have LF line endings (fixes Docker on all platforms)
+# Normalize all text files to LF on checkout and commit. Prevents the
+# CRLF / ^M churn that broke app/routes/dashboard.py historically.
+* text=auto eol=lf
+
+# Be explicit for the languages/scripts we care about most.
+*.py text eol=lf
+
+# Shell scripts always LF (fixes Docker on all platforms).
 *.sh text eol=lf
 docker-entrypoint.sh text eol=lf
