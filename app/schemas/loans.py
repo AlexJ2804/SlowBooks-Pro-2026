@@ -53,3 +53,60 @@ class AmortizationGenerateResponse(BaseModel):
     loan_id: int
     rows_generated: int
     final_remaining_balance: Decimal
+
+
+# ---------------------------------------------------------------------------
+# Forward projection (Phase 1, Task 1C)
+# ---------------------------------------------------------------------------
+
+class ForwardProjectRequest(BaseModel):
+    """Inputs to project a loan's amortization from its current state.
+
+    Origination data (original_amount, term_months, start_date) is NOT
+    required — the engine walks forward from `current_principal` over
+    `remaining_months` (or solves for it) using the same fixed-payment
+    math as the from-origination engine.
+    """
+    current_principal: Decimal = Field(gt=0)
+    interest_rate_pct: Decimal = Field(ge=0, le=100)
+    monthly_payment: Decimal = Field(gt=0)
+    escrow_amount: Optional[Decimal] = Field(default=Decimal("0"), ge=0)
+    next_payment_date: date
+    # If omitted, the engine solves for remaining_months from the standard
+    # amortization formula. Pass it explicitly only when you have a known
+    # term you'd rather pin (e.g. matching an Irish mortgage's stated term).
+    remaining_months: Optional[int] = Field(default=None, gt=0, le=600)
+
+
+class ForwardProjectResponse(BaseModel):
+    loan_id: int
+    rows_generated: int
+    first_payment_date: date
+    last_payment_date: date
+    final_remaining_balance: Decimal
+
+
+# ---------------------------------------------------------------------------
+# Home equity rollup (Phase 1, Task 1C)
+# ---------------------------------------------------------------------------
+
+class HomeEquityResponse(BaseModel):
+    """`property_value − mortgage_balance`, with provenance fields so the
+    UI can show e.g. 'value as of 2026-05-01; mortgage as of 2026-06-01'.
+
+    `mortgage_source` is one of:
+        snapshot              — most-recent balance_snapshots row
+        schedule              — most-recent loan_amortization_schedule row
+        loan.original_amount  — fallback when neither exists
+    """
+    loan_id: int
+    currency: str
+    property_account_id: int
+    property_account_name: Optional[str]
+    property_value: Optional[Decimal]
+    property_as_of: Optional[date]
+    mortgage_account_id: int
+    mortgage_balance: Decimal
+    mortgage_as_of: Optional[date]
+    mortgage_source: str
+    equity: Optional[Decimal]
