@@ -514,7 +514,8 @@ const App = {
                     </div>`;
             }
 
-            // Monthly Revenue Trend
+            // Monthly Income Trend — sums GL income-account credits, not
+            // invoiced revenue (the underlying endpoint reads the ledger).
             if (charts.monthly_revenue && charts.monthly_revenue.length > 0) {
                 const maxRev = Math.max(...charts.monthly_revenue.map(m => m.amount), 1);
                 const bars = charts.monthly_revenue.map(m => {
@@ -529,7 +530,7 @@ const App = {
                 }).join('');
                 chartsHtml += `
                     <div class="dashboard-section">
-                        <h3>Monthly Revenue (Last 12 Months)</h3>
+                        <h3>Monthly Income (Last 12 Months)</h3>
                         <div style="display:flex; gap:2px; align-items:flex-end;">${bars}</div>
                     </div>`;
             }

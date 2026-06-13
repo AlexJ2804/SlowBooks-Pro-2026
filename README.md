@@ -80,7 +80,7 @@ The codebase is annotated with "decompilation" comments referencing `QBW32.EXE` 
 - **Household section (top)** — net-worth headline with per-person slice cards, airline-miles roll-up, latest credit scores grid, and a recent balance-snapshot activity feed. Each section degrades to its own empty-state if its endpoint is unavailable
 - **Bookkeeping section (below)** — the legacy QuickBooks Company Snapshot: Total Receivables, Overdue Invoices, Active Customers, Total Payables
 - **AR Aging Bar Chart** — Color-coded stacked bar (Current/30/60/90+ days)
-- **Monthly Revenue Trend** — Bar chart showing last 12 months of invoiced revenue
+- **Monthly Income Trend** — Bar chart showing last 12 months of income posted to the general ledger (sum of credits to income-type accounts)
 - Recent invoices and payments tables
 - Bank balances at a glance
 
