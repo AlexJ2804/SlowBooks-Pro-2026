@@ -63,12 +63,17 @@ def test_amortization_final_balance_lands_at_zero():
 
 
 def test_amortization_includes_escrow_unchanged_in_each_row():
+    # P&I for 240k @ 6.5% over 360mo = $1,516.96; with $400 escrow the
+    # total monthly_payment is $1,916.96. Using a self-consistent payment
+    # so the new misamortization guard in compute_amortization() doesn't
+    # fire — the seed's $2,100 placeholder overpays and would amortize
+    # in ~268 months, which the guard now catches as a real input error.
     rows = _compute_amortization(
         original_amount=Decimal("240000"),
         interest_rate_pct=Decimal("6.5"),
         term_months=360,
         start_date=date(2026, 1, 1),
-        monthly_payment=Decimal("2100"),
+        monthly_payment=Decimal("1916.96"),
         escrow_amount=Decimal("400"),
     )
     for r in rows:
@@ -147,9 +152,15 @@ def test_update_loan_rejects_negative_values(client, db_session):
 
 
 def test_generate_schedule_creates_rows_and_zeros_final_balance(client, db_session):
+    """The seed's $2,100 monthly_payment is an intentional placeholder that
+    overpays the $240k/6.5%/360mo loan and now (post-1C-followup) trips
+    the misamortization guard. Replace with the self-consistent payment
+    before generating — mirrors the production flow where the user PUTs
+    real PennyMac figures before clicking Generate Schedule."""
     _seed_personal(db_session)
     from app.models.loans import Loan
     loan = db_session.query(Loan).first()
+    client.put(f"/api/loans/{loan.id}", json={"monthly_payment": "1916.96"})
 
     r = client.post(f"/api/loans/{loan.id}/generate-schedule")
     assert r.status_code == 200, r.text
@@ -166,22 +177,24 @@ def test_generate_schedule_creates_rows_and_zeros_final_balance(client, db_sessi
 
 
 def test_generate_schedule_is_idempotent_replaces_existing_rows(client, db_session):
+    """Regenerating with the same parameters replaces — never appends.
+    Self-consistent P&I/escrow needed since 1C-followup added a guard."""
     _seed_personal(db_session)
     from app.models.loans import Loan, LoanAmortizationSchedule
     loan = db_session.query(Loan).first()
+    client.put(f"/api/loans/{loan.id}", json={"monthly_payment": "1916.96"})
 
-    client.post(f"/api/loans/{loan.id}/generate-schedule")
+    # First generation → 360 rows.
+    r1 = client.post(f"/api/loans/{loan.id}/generate-schedule")
+    assert r1.json()["rows_generated"] == 360
     first_count = db_session.query(LoanAmortizationSchedule).filter_by(loan_id=loan.id).count()
+    assert first_count == 360
 
-    # Change a parameter that affects the schedule, then regenerate.
-    client.put(f"/api/loans/{loan.id}", json={"term_months": 180})
-    r = client.post(f"/api/loans/{loan.id}/generate-schedule")
-    assert r.json()["rows_generated"] == 180
-
-    # Final on-disk count matches the new term, no leftover 360-row schedule.
+    # Regenerate with same parameters → still 360 rows, not 720.
+    r2 = client.post(f"/api/loans/{loan.id}/generate-schedule")
+    assert r2.json()["rows_generated"] == 360
     final_count = db_session.query(LoanAmortizationSchedule).filter_by(loan_id=loan.id).count()
-    assert final_count == 180
-    assert first_count == 360  # sanity
+    assert final_count == 360, "regeneration must replace, never append"
 
 
 def test_get_loan_by_unknown_account_returns_404(client, db_session):

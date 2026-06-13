@@ -101,11 +101,24 @@ _LEGACY_PCT_TO_PERSON_ID = (
 )
 
 
-# Initial balance snapshots dated today. Only property + loan get one
-# in the seed — other balance_only accounts wait for user input via UI.
+# Initial balance snapshots dated today. Only the LOAN gets a seed
+# snapshot — the property no longer does (used to seed $299k, but a
+# fabricated value drives a confident-but-fictional home-equity figure
+# off net-worth; spec is "do not hardcode a value"). The user enters a
+# defensible current property value via /#/balances (recent comp or
+# appraisal) before the home-equity rollup will render a number.
 _INITIAL_SNAPSHOTS = {
-    "US House":               (Decimal("299000.00"), "USD"),
     "US Mortgage (PennyMac)": (Decimal("232000.00"), "USD"),
+}
+
+
+# Optional per-account descriptions. Address goes in `description` rather
+# than the account name so existing references to `asset_account_name:
+# "US House"` (loans response, UI labels) keep working unchanged. Sets
+# the convention for future properties (e.g. an Irish home would have its
+# own description here without needing a rename).
+_ACCOUNT_DESCRIPTIONS = {
+    "US House": "808 Lochinvar Ln",
 }
 
 
@@ -175,6 +188,7 @@ def apply_seed(db, today=None):
             account_kind=kind,
             update_strategy=strategy,
             currency=currency,
+            description=_ACCOUNT_DESCRIPTIONS.get(name),
             alex_pct=alex_pct,
             alexa_pct=alexa_pct,
             kids_pct=kids_pct,

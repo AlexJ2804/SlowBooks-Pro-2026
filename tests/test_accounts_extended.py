@@ -38,7 +38,18 @@ def test_list_accounts_includes_new_fields(client, db_session):
 
 
 def test_list_accounts_attaches_latest_balance(client, db_session):
+    """1C follow-up: seed dropped its fabricated US House snapshot, so we
+    add one explicitly here to exercise the snapshot-attached path. The
+    seed's mortgage snapshot still ships, so an asset-side fixture only
+    needs adding."""
     _seed_personal(db_session)
+    from app.models.accounts import Account
+    house_acct = db_session.query(Account).filter_by(name="US House").first()
+    client.post("/api/balances", json={
+        "account_id": house_acct.id, "as_of_date": "2026-05-04",
+        "balance": "299000.00",
+    })
+
     r = client.get("/api/accounts")
     rows = r.json()
     by_name = {a["name"]: a for a in rows}
@@ -129,9 +140,15 @@ def test_partial_update_only_one_pct_is_allowed(client, db_session):
 
 
 def test_get_single_account_returns_latest_balance(client, db_session):
+    """1C follow-up: add an explicit snapshot since the seed no longer
+    creates one for US House."""
     _seed_personal(db_session)
     from app.models.accounts import Account
     house = db_session.query(Account).filter_by(name="US House").first()
+    client.post("/api/balances", json={
+        "account_id": house.id, "as_of_date": "2026-05-04",
+        "balance": "299000.00",
+    })
 
     r = client.get(f"/api/accounts/{house.id}")
     assert r.status_code == 200

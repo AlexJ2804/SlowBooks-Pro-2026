@@ -94,6 +94,13 @@ class HomeEquityResponse(BaseModel):
     """`property_value − mortgage_balance`, with provenance fields so the
     UI can show e.g. 'value as of 2026-05-01; mortgage as of 2026-06-01'.
 
+    Partial-data shape (200, not error):
+      * no linked property asset on the loan → `property_account_id`,
+        `property_value`, `equity` all null. Mortgage side still resolves.
+      * linked asset present but no snapshot yet → `property_value`,
+        `equity` null; `property_account_id` + `property_account_name`
+        populated so the UI can deep-link to /#/balances for that account.
+
     `mortgage_source` is one of:
         snapshot              — most-recent balance_snapshots row
         schedule              — most-recent loan_amortization_schedule row
@@ -101,7 +108,7 @@ class HomeEquityResponse(BaseModel):
     """
     loan_id: int
     currency: str
-    property_account_id: int
+    property_account_id: Optional[int]
     property_account_name: Optional[str]
     property_value: Optional[Decimal]
     property_as_of: Optional[date]

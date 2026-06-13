@@ -204,20 +204,22 @@ def home_equity(loan_id: int, db: Session = Depends(get_db)):
     loan = db.query(Loan).filter(Loan.id == loan_id).first()
     if loan is None:
         raise HTTPException(status_code=404, detail="Loan not found")
+
+    # No-linked-asset case: mirror the snapshot-missing partial shape (200
+    # with null property fields) instead of 422. The same surface this UI
+    # uses on a clean install — or as an MBC template — must not error.
     if loan.asset_account_id is None:
-        raise HTTPException(
-            status_code=422,
-            detail="Loan has no asset_account_id — link a property asset first",
+        asset = None
+        property_snap = None
+    else:
+        asset = db.query(Account).filter(Account.id == loan.asset_account_id).first()
+        property_snap = (
+            db.query(BalanceSnapshot)
+            .filter(BalanceSnapshot.account_id == loan.asset_account_id)
+            .order_by(BalanceSnapshot.as_of_date.desc())
+            .first()
         )
 
-    asset = db.query(Account).filter(Account.id == loan.asset_account_id).first()
-
-    property_snap = (
-        db.query(BalanceSnapshot)
-        .filter(BalanceSnapshot.account_id == loan.asset_account_id)
-        .order_by(BalanceSnapshot.as_of_date.desc())
-        .first()
-    )
     mortgage_snap = (
         db.query(BalanceSnapshot)
         .filter(BalanceSnapshot.account_id == loan.account_id)

@@ -72,6 +72,7 @@ def compute_amortization(
     )
     rows: list[dict] = []
     remaining = original_amount
+    pi_room = Decimal(monthly_payment) - Decimal(escrow_amount)
 
     for n in range(1, term_months + 1):
         interest = (remaining * monthly_rate).quantize(_CENTS, rounding=ROUND_HALF_UP)
@@ -79,13 +80,40 @@ def compute_amortization(
             _CENTS, rounding=ROUND_HALF_UP
         )
 
-        # Final period: absorb sub-cent drift so balance lands at exactly 0.
+        # Final-row trueing: principal absorbs the remainder so balance ends
+        # at exactly 0. GUARD: if the remaining balance at the final row
+        # exceeds the P&I capacity of a single monthly_payment, the inputs
+        # don't actually amortize over `term_months` — silently setting
+        # principal=remaining would persist a "final payment" larger than
+        # any normal payment, hiding the misamortization behind the
+        # zeroed balance. Raise instead so bad inputs (wrong rate, wrong
+        # term, an estimated APR that turned out off) surface visibly.
         if n == term_months:
+            if remaining > pi_room:
+                raise ValueError(
+                    f"Schedule misamortizes: at the final payment, remaining "
+                    f"balance {remaining} exceeds the P&I capacity of "
+                    f"(monthly_payment {monthly_payment} - escrow {escrow_amount}) "
+                    f"= {pi_room}. Check rate, term, or monthly_payment."
+                )
             principal = remaining
 
         new_remaining = (remaining - principal).quantize(
             _CENTS, rounding=ROUND_HALF_UP
         )
+
+        # Intermediate-balance guard: a pre-final row going negative means
+        # a normal payment overshot the principal — the loan would have
+        # paid off before term_months. Raise instead of running phantom
+        # extra rows past payoff.
+        if n < term_months and new_remaining < 0:
+            raise ValueError(
+                f"Schedule misamortizes: intermediate balance went negative "
+                f"at payment {n} (remaining={new_remaining}). Loan likely "
+                f"pays off before payment {term_months}; check term_months "
+                f"or monthly_payment."
+            )
+
         rows.append({
             "payment_number": n,
             "payment_date": add_months(start_date, n - 1),

@@ -74,6 +74,9 @@ def test_seed_creates_19_accounts_with_correct_ownership(db_session):
     house = by_name["US House"]
     assert house.account_kind == "property"
     assert house.account_type == AccountType.ASSET
+    # 1C follow-up: address goes on the description, not in the name,
+    # so existing `asset_account_name: "US House"` callers keep working.
+    assert house.description == "808 Lochinvar Ln"
 
     mortgage = by_name["US Mortgage (PennyMac)"]
     assert mortgage.account_kind == "loan"
@@ -88,23 +91,33 @@ def test_seed_creates_19_accounts_with_correct_ownership(db_session):
     assert (escrow.alex_pct, escrow.alexa_pct, escrow.kids_pct) == (50, 50, 0)
 
 
-def test_seed_initial_snapshots_property_and_loan_only(db_session):
+def test_seed_initial_snapshots_loan_only(db_session):
+    """1C follow-up: the seed no longer ships a fabricated $299k snapshot
+    for the property (was a spec violation — "do not hardcode a value" —
+    and a net-worth-accuracy problem: a confident-but-fictional figure
+    drove the home-equity rollup). Only the mortgage gets a seed snapshot
+    now; the property waits for a defensible value (recent comp or
+    appraisal) entered via /#/balances."""
     seed_module.apply_seed(db_session, today=_FROZEN_TODAY)
     db_session.commit()
 
     snapshots = db_session.query(BalanceSnapshot).all()
-    # Phase 1.5 spec: PennyMac Escrow gets NO initial snapshot, the
-    # user enters that from the next statement. So snapshot count
-    # stays at 2 (House + Mortgage).
-    assert len(snapshots) == 2
+    assert len(snapshots) == 1
 
-    by_account_name = {s.account.name: s for s in snapshots}
-    assert by_account_name["US House"].balance == Decimal("299000.00")
-    assert by_account_name["US House"].currency == "USD"
-    assert by_account_name["US House"].as_of_date == _FROZEN_TODAY
+    snap = snapshots[0]
+    assert snap.account.name == "US Mortgage (PennyMac)"
+    assert snap.balance == Decimal("232000.00")
+    assert snap.currency == "USD"
 
-    assert by_account_name["US Mortgage (PennyMac)"].balance == Decimal("232000.00")
-    assert by_account_name["US Mortgage (PennyMac)"].currency == "USD"
+    # Confirm there is NO US House snapshot — the home-equity endpoint
+    # must surface null until the user enters a real value.
+    from app.models.accounts import Account
+    house = db_session.query(Account).filter_by(name="US House").first()
+    house_snaps = (
+        db_session.query(BalanceSnapshot)
+        .filter_by(account_id=house.id).all()
+    )
+    assert house_snaps == []
 
 
 def test_seed_mortgage_loan_row_with_placeholder_values_no_schedule(db_session):
@@ -139,7 +152,9 @@ def test_seed_is_idempotent_on_re_run(db_session):
     first = seed_module.apply_seed(db_session, today=_FROZEN_TODAY)
     db_session.commit()
     assert first["accounts_created"] == _EXPECTED_ACCOUNT_COUNT
-    assert first["snapshots_created"] == 2
+    # 1C follow-up: dropped the fabricated US House snapshot, so only the
+    # mortgage gets one at seed time.
+    assert first["snapshots_created"] == 1
     assert first["loans_created"] == 1
     assert first["people_created"] == 3
 
@@ -148,7 +163,7 @@ def test_seed_is_idempotent_on_re_run(db_session):
     assert second["accounts_created"] == 0, second
     assert second["accounts_skipped"] == _EXPECTED_ACCOUNT_COUNT
     assert second["snapshots_created"] == 0
-    assert second["snapshots_skipped"] == 2
+    assert second["snapshots_skipped"] == 1
     assert second["loans_created"] == 0
     assert second["loans_skipped"] == 1
     assert second["people_created"] == 0
@@ -161,7 +176,9 @@ def test_seed_is_idempotent_on_re_run(db_session):
 
     # And the totals on disk haven't doubled.
     assert db_session.query(Account).filter(Account.is_system == False).count() == _EXPECTED_ACCOUNT_COUNT
-    assert db_session.query(BalanceSnapshot).count() == 2
+    # Was 2 (House + Mortgage); now 1 after dropping the fabricated
+    # US House snapshot in the 1C follow-up.
+    assert db_session.query(BalanceSnapshot).count() == 1
     assert db_session.query(Loan).count() == 1
     assert db_session.query(Person).count() == 3
 

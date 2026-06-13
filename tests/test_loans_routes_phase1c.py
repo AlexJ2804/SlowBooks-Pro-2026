@@ -191,3 +191,28 @@ def test_home_equity_returns_null_property_value_when_no_snapshot(client, db_ses
 def test_home_equity_unknown_loan_returns_404(client):
     r = client.get("/api/loans/99999/home-equity")
     assert r.status_code == 404
+
+
+def test_home_equity_returns_partial_200_when_no_asset_account_linked(
+    client, db_session,
+):
+    """No `loan.asset_account_id` (e.g. a fresh install or MBC-template
+    use) must return a 200 with null property fields, not a 422 the
+    UI then has to special-case."""
+    loan_id = _get_mortgage_loan_id(client, db_session)
+    from app.models.loans import Loan
+    loan = db_session.query(Loan).filter_by(id=loan_id).first()
+    loan.asset_account_id = None
+    db_session.commit()
+
+    r = client.get(f"/api/loans/{loan_id}/home-equity")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["property_account_id"] is None
+    assert body["property_account_name"] is None
+    assert body["property_value"] is None
+    assert body["property_as_of"] is None
+    assert body["equity"] is None
+    # Mortgage side still resolves.
+    assert body["mortgage_balance"] is not None
+    assert body["mortgage_source"] in ("snapshot", "schedule", "loan.original_amount")

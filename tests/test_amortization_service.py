@@ -227,3 +227,82 @@ def test_add_months_clamps_end_of_month():
 
 def test_add_months_identity_for_zero():
     assert add_months(date(2026, 6, 13), 0) == date(2026, 6, 13)
+
+
+# ---------------------------------------------------------------------------
+# Drift guards — added in 1C follow-up. The PennyMac rate is derived
+# (~6.99%), so the engine must surface a misamortizing input rather than
+# masking it by silently absorbing the gap into the final row.
+# ---------------------------------------------------------------------------
+
+def test_final_row_guard_rejects_remaining_exceeding_pi_capacity():
+    """If `remaining` at the final row > (monthly_payment - escrow), the
+    natural amortization didn't actually finish in `term_months`. The
+    engine must raise rather than persist a phantom 'final payment'
+    larger than any normal payment."""
+    # 30-year textbook math is $1,516.96/mo P&I; ask for the same loan in
+    # 100 months — the schedule won't amortize down in time, and the
+    # final row's remaining will dwarf one month's P&I.
+    with pytest.raises(ValueError, match="exceeds the P&I capacity"):
+        compute_amortization(
+            original_amount=Decimal("240000"),
+            interest_rate_pct=Decimal("6.5"),
+            term_months=100,
+            start_date=date(2026, 1, 1),
+            monthly_payment=Decimal("1516.96"),
+            escrow_amount=Decimal("0"),
+        )
+
+
+def test_intermediate_balance_guard_rejects_negative_pre_final_balance():
+    """A pre-final row going negative means a normal payment overshot the
+    principal — the loan would have paid off before `term_months`."""
+    # $1,000 principal at 0% APR with $500 payments would naturally
+    # finish in 2 payments; asking for 5 puts the third row at a
+    # negative balance.
+    with pytest.raises(ValueError, match="went negative at payment"):
+        compute_amortization(
+            original_amount=Decimal("1000"),
+            interest_rate_pct=Decimal("0"),
+            term_months=5,
+            start_date=date(2026, 1, 1),
+            monthly_payment=Decimal("500"),
+            escrow_amount=Decimal("0"),
+        )
+
+
+def test_final_row_guard_allows_legitimate_stub_payment():
+    """The PennyMac scenario has a final-row stub (principal ≈ $1,035 vs
+    typical $1,550 P&I). That's not a misamortization — `remaining`
+    going INTO the final row is LESS than the P&I capacity, so the stub
+    is honest. Guard must let it through."""
+    rows = project_forward(
+        current_principal=Decimal("232058.65"),
+        interest_rate_pct=Decimal("6.99"),
+        monthly_payment=Decimal("2013.14"),
+        escrow_amount=Decimal("462.62"),
+        next_payment_date=date(2026, 7, 1),
+    )
+    # The guard didn't fire (no exception) → engine successfully wrote
+    # the stub last row.
+    assert rows[-1]["remaining_balance"] == Decimal("0.00")
+    # And the stub principal is indeed smaller than a typical P&I.
+    typical_pi = Decimal("1550.52")     # 2013.14 - 462.62
+    assert rows[-1]["principal_amount"] < typical_pi
+
+
+def test_final_row_guard_does_not_fire_at_or_under_pi_capacity():
+    """Edge case: remaining at final row exactly equals (PMT - escrow).
+    That's the boundary — a single normal payment clears it exactly.
+    Must NOT raise."""
+    rows = compute_amortization(
+        original_amount=Decimal("1000"),
+        interest_rate_pct=Decimal("0"),
+        term_months=2,
+        start_date=date(2026, 1, 1),
+        monthly_payment=Decimal("500"),
+        escrow_amount=Decimal("0"),
+    )
+    assert len(rows) == 2
+    assert rows[-1]["remaining_balance"] == Decimal("0.00")
+    assert rows[-1]["principal_amount"] == Decimal("500.00")

@@ -65,23 +65,33 @@ def _by_id(seq, name):
 # --- Smoke / shape ---------------------------------------------------------
 
 def test_dashboard_runs_with_just_seed_no_extra_balances(client, db_session, mock_fx):
+    """1C follow-up: the seed dropped its fabricated $299k US House snapshot,
+    so on just-the-seed the household nets out NEGATIVE (mortgage only,
+    no offsetting property value until the user enters one via UI).
+    This is the correct behaviour — a confident-but-fictional house
+    figure would have masked the home-equity blind spot."""
     _seed_personal(db_session)
     r = client.get("/api/net-worth")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["home_currency"] == "USD"
-    # Seed creates snapshots for US House + US Mortgage only.
-    # House (asset, 50/50/0): 299000 → +299000 USD
-    # Mortgage (liability, 50/50/0): 232000 → -232000 USD
-    # Household net = 299000 - 232000 = 67000.
-    assert Decimal(body["totals"]["household"]["net"]) == Decimal("67000.00")
-    assert Decimal(body["totals"]["alex"]["net"]) == Decimal("33500.00")
-    assert Decimal(body["totals"]["alexa"]["net"]) == Decimal("33500.00")
+    # Seed snapshot: US Mortgage (liability, 50/50/0) at 232000 → -232000 USD.
+    # No property snapshot until the user enters one.
+    assert Decimal(body["totals"]["household"]["net"]) == Decimal("-232000.00")
+    assert Decimal(body["totals"]["alex"]["net"]) == Decimal("-116000.00")
+    assert Decimal(body["totals"]["alexa"]["net"]) == Decimal("-116000.00")
     assert Decimal(body["totals"]["kids"]["net"]) == Decimal("0.00")
 
 
 def test_dashboard_response_contains_per_account_breakdown(client, db_session, mock_fx):
+    """Per-account shape test. Adds a house snapshot via the API since the
+    1C follow-up dropped the seeded $299k figure — we still want to
+    exercise the property-asset code path here."""
     _seed_personal(db_session)
+    from app.models.accounts import Account
+    house_account = db_session.query(Account).filter_by(name="US House").first()
+    _add_snapshot(client, house_account.id, "299000.00")  # explicit test value
+
     body = client.get("/api/net-worth").json()
     accounts = body["accounts"]
     # All 19 personal accounts appear, even those without snapshots.
@@ -199,10 +209,19 @@ def test_credit_card_balance_subtracts_from_net_worth(
 
 def test_loan_balance_subtracts_via_kind_loan(client, db_session, mock_fx):
     """Pinned by the seed which puts US Mortgage at 232000 — net for
-    each owner should drop by 116000 from that loan alone."""
+    each owner should drop by 116000 from that loan alone.
+
+    1C follow-up: house figure now added explicitly here (was seeded;
+    the seed dropped it to avoid driving home equity off a fabricated
+    value). Combined with the seeded mortgage the math is the same as
+    before: 50% of (299000 - 232000) = 33500 per owner."""
     _seed_personal(db_session)
+    from app.models.accounts import Account
+    house_account = db_session.query(Account).filter_by(name="US House").first()
+    _add_snapshot(client, house_account.id, "299000.00")
+
     body = client.get("/api/net-worth").json()
-    # Just the seed: house +299000, mortgage -232000.
+    # House +299000, mortgage -232000.
     # Alex: 50% of (299000 - 232000) = 33500.
     assert Decimal(body["totals"]["alex"]["net"]) == Decimal("33500.00")
     by_name = {a["name"]: a for a in body["accounts"]}
